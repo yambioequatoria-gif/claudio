@@ -1,0 +1,19 @@
+{
+  "name": "Lite PDF",
+  "short_name": "Lite PDF",
+  "description": "Local PDF viewer and editor. Files never leave your computer.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#525659",
+  "theme_color": "#f3f3f3",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "file_handlers": [
+    {
+      "action": "./",
+      "accept": { "application/pdf": [".pdf"] }
+    }
+  ]
+}

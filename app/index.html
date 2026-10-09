@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lite PDF</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="vendor/pdfjs/pdf_viewer.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header id="toolbar">
+  <button id="openBtn" title="Open PDF (Ctrl+O)">Open</button>
+  <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
+  <span class="sep"></span>
+  <button id="prevBtn" title="Previous page" disabled>&#8249;</button>
+  <input id="pageInput" type="number" min="1" value="1" aria-label="Page number" disabled>
+  <span id="pageCount">/ 0</span>
+  <button id="nextBtn" title="Next page" disabled>&#8250;</button>
+  <span class="sep"></span>
+  <button id="zoomOutBtn" title="Zoom out" disabled>&minus;</button>
+  <span id="zoomLabel">100%</span>
+  <button id="zoomInBtn" title="Zoom in" disabled>+</button>
+  <button id="fitWidthBtn" title="Fit to width" disabled>Fit width</button>
+  <span class="sep"></span>
+  <input id="findInput" type="search" placeholder="Find (Ctrl+F)" aria-label="Find in document" disabled>
+  <span id="findCount"></span>
+  <button id="findPrevBtn" title="Previous match (Shift+Enter)" disabled>&#8593;</button>
+  <button id="findNextBtn" title="Next match (Enter)" disabled>&#8595;</button>
+  <span id="docName"></span>
+</header>
+<div id="stage">
+  <div id="viewerContainer">
+  <div id="viewer" class="pdfViewer"></div>
+  <div id="message" role="status"></div>
+  </div>
+</div>
+<div id="dropHint" hidden>Drop a PDF to open it</div>
+<script src="polyfills.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
