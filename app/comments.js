@@ -4,6 +4,8 @@ import { PDFDocument, PDFDict, PDFArray, PDFName, PDFRef, PDFHexString, PDFStrin
 
 const name = (text) => PDFName.of(text);
 
+const NOT_COMMENTS = new Set(["/Link", "/Widget", "/Popup"]);
+
 function textOf(value) {
   if (value instanceof PDFString || value instanceof PDFHexString) return value.decodeText();
   return "";
@@ -31,7 +33,8 @@ export async function readComments(bytes) {
       const dict = ctx.lookup(item, PDFDict);
       if (!dict) continue;
       const subtype = dict.lookup(name("Subtype"))?.toString();
-      if (subtype === "/Popup") continue;
+      // Links, form fields and popups are not comments, even when they carry text.
+      if (NOT_COMMENTS.has(subtype)) continue;
       records.push({
         key: item instanceof PDFRef ? item.toString() : null,
         dict,
@@ -45,7 +48,8 @@ export async function readComments(bytes) {
     const own = textOf(dict.lookup(name("Contents")));
     if (own) return own;
     // Some apps keep the text only on the popup that belongs to the note.
-    const popup = ctx.lookup(dict.get(name("Popup")), PDFDict);
+    const popupRef = dict.get(name("Popup"));
+    const popup = popupRef ? ctx.lookup(popupRef, PDFDict) : undefined;
     return popup ? textOf(popup.lookup(name("Contents"))) : "";
   };
 

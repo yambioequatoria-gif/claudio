@@ -35,7 +35,11 @@ const els = {
 };
 
 const eventBus = new pdfjsViewer.EventBus();
-const linkService = new pdfjsViewer.PDFLinkService({ eventBus });
+// External links open in a new window. Without this, clicking one replaces the open PDF.
+const linkService = new pdfjsViewer.PDFLinkService({
+  eventBus,
+  externalLinkTarget: pdfjsViewer.LinkTarget.BLANK,
+});
 const findController = new pdfjsViewer.PDFFindController({ eventBus, linkService });
 const pdfViewer = new pdfjsViewer.PDFViewer({
   container: els.container,
@@ -44,6 +48,12 @@ const pdfViewer = new pdfjsViewer.PDFViewer({
   linkService,
   findController,
   imageResourcesPath: `${VENDOR}images/`,
+  // pdf.js caps canvas size at about 5 megapixels by default, which blurs pages at high zoom
+  // or on high-DPI screens. Allow enough for a crisp page at normal zoom levels.
+  maxCanvasPixels: 32 * 1024 * 1024,
+  // The detail canvas trades sharpness for speed, leaving most of a zoomed page soft. Off, pages stay crisp.
+  enableDetailCanvas: false,
+  capCanvasAreaFactor: 1000,
 });
 linkService.setViewer(pdfViewer);
 

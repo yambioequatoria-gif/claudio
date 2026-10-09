@@ -74,7 +74,7 @@ button, input { font: inherit; color: inherit; }
   align-items: center;
   gap: 10px;
   min-width: 0;
-  max-width: 260px;
+  max-width: 200px;
 }
 .mark {
   flex: none;
@@ -103,6 +103,7 @@ button, input { font: inherit; color: inherit; }
   gap: 8px;
   flex: 1;
   min-width: 0;
+  justify-content: flex-end;
 }
 .group {
   display: flex;
@@ -191,7 +192,7 @@ input:disabled { opacity: 0.4; cursor: default; }
   background: var(--bg);
 }
 .find input {
-  width: 180px;
+  width: 150px;
   height: 30px;
   border: 0;
   background: transparent;
