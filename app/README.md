@@ -4,13 +4,15 @@ A local PDF viewer, built to replace Adobe Acrobat for everyday reading. Editing
 
 Files are opened and rendered in the browser on your computer. They are not uploaded anywhere.
 
-## Run it (Windows)
+## Set up (Windows, once)
 
-1. Double-click `run.bat` and leave the window open. It serves the app on http://localhost:8080 and only this computer can reach it.
-2. In Edge, open http://localhost:8080 and install the app: the app icon in the address bar (or the menu, then Apps, then Install this site as an app).
+1. Double-click `setup.bat`. It starts the app's local server in the background and makes it start again at every sign-in. No admin rights are needed. It only has to be run once.
+2. In Edge, open http://localhost:8080 and install the app: the app icon in the address bar, or the menu, then Apps, then Install this site as an app.
 3. Right-click a PDF, choose Open with, and pick Lite PDF. To make it the default, use Settings, Apps, Default apps.
 
-The installed app loads from localhost, so `run.bat` must be running when you open a PDF. Opening a PDF without it running shows an error page.
+After that, clicking a PDF just opens it. You don't need to run anything else.
+
+To check the server is running, open http://localhost:8080 in Edge. To run it in a visible window for troubleshooting, double-click `run.bat`. To stop the background server, end the `powershell` process in Task Manager, or sign out and back in after removing "Lite PDF server" from the Startup folder (`shell:startup`).
 
 ## Use
 
@@ -20,8 +22,8 @@ Large files stay responsive because only pages near the screen are drawn.
 
 ## Layout
 
-`index.html`, `app.js`, `app.css` are the app. `polyfills.js` patches a method older browsers lack. `sw.js` lets the app load offline once it has been opened. `manifest.webmanifest` declares PDF file handling. `vendor/pdfjs/` is pdf.js 6.3.289, Apache-2.0 licensed (see `vendor/pdfjs/LICENSE`), copied in so nothing is loaded from a CDN.
+`index.html`, `app.js`, `app.css` are the app. `serve.ps1` is the local server, `setup.ps1` registers it at sign-in, and the `.bat` files are double-click wrappers for them. `polyfills.js` patches a method older browsers lack. `sw.js` lets the app load offline once it has been opened. `manifest.webmanifest` declares PDF file handling. `vendor/pdfjs/` is pdf.js 6.3.289, Apache-2.0 licensed (see `vendor/pdfjs/LICENSE`), copied in so nothing is loaded from a CDN.
 
 ## Status
 
-Tested in headless Chromium: opening a 20-page and a 400-page PDF, page jumps, zoom, find, and a file-replace. Not yet tested on Windows or in Edge: `run.bat`, installing the app, opening a PDF from Explorer, and password-protected PDFs.
+Tested in headless Chromium: opening a 20-page and a 400-page PDF, page jumps, zoom, find, and a file-replace. The server script was run under PowerShell 7 on Linux. Not yet tested on Windows or in Edge: `setup.bat`, Windows PowerShell 5, installing the app, opening a PDF from Explorer, and password-protected PDFs.

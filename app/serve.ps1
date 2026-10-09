@@ -34,7 +34,8 @@ try {
     try {
       $urlPath = [System.Uri]::UnescapeDataString($ctx.Request.Url.AbsolutePath)
       if ($urlPath -eq "/" -or $urlPath -eq "") { $urlPath = "/index.html" }
-      $file = [System.IO.Path]::GetFullPath((Join-Path $root ($urlPath.TrimStart("/") -replace "/", "\")))
+      $relative = $urlPath.TrimStart("/").Replace("/", [System.IO.Path]::DirectorySeparatorChar)
+      $file = [System.IO.Path]::GetFullPath((Join-Path $root $relative))
 
       if (-not $file.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path -LiteralPath $file -PathType Leaf)) {
         $res.StatusCode = 404
