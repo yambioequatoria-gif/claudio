@@ -10,32 +10,90 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<header id="toolbar">
-  <button id="openBtn" title="Open PDF (Ctrl+O)">Open</button>
-  <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
-  <span class="sep"></span>
-  <button id="prevBtn" title="Previous page" disabled>&#8249;</button>
-  <input id="pageInput" type="number" min="1" value="1" aria-label="Page number" disabled>
-  <span id="pageCount">/ 0</span>
-  <button id="nextBtn" title="Next page" disabled>&#8250;</button>
-  <span class="sep"></span>
-  <button id="zoomOutBtn" title="Zoom out" disabled>&minus;</button>
-  <span id="zoomLabel">100%</span>
-  <button id="zoomInBtn" title="Zoom in" disabled>+</button>
-  <button id="fitWidthBtn" title="Fit to width" disabled>Fit width</button>
-  <span class="sep"></span>
-  <input id="findInput" type="search" placeholder="Find (Ctrl+F)" aria-label="Find in document" disabled>
-  <span id="findCount"></span>
-  <button id="findPrevBtn" title="Previous match (Shift+Enter)" disabled>&#8593;</button>
-  <button id="findNextBtn" title="Next match (Enter)" disabled>&#8595;</button>
-  <span id="docName"></span>
-</header>
-<div id="stage">
-  <div id="viewerContainer">
-  <div id="viewer" class="pdfViewer"></div>
-  <div id="message" role="status"></div>
+<header class="bar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true">PDF</span>
+    <span id="docName" class="doc-name">No file open</span>
   </div>
+
+  <div class="tools">
+    <button id="openBtn" class="btn primary" title="Open a PDF (Ctrl+O)">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg>
+      Open
+    </button>
+    <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
+
+    <span class="sep" aria-hidden="true"></span>
+
+    <div class="group" role="group" aria-label="Pages">
+      <button id="prevBtn" class="icon-btn" title="Previous page" aria-label="Previous page" disabled>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <label class="page-box">
+        <input id="pageInput" type="number" min="1" value="1" aria-label="Page number" disabled>
+        <span id="pageCount">of 0</span>
+      </label>
+      <button id="nextBtn" class="icon-btn" title="Next page" aria-label="Next page" disabled>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
+    </div>
+
+    <span class="sep" aria-hidden="true"></span>
+
+    <div class="group" role="group" aria-label="Zoom">
+      <button id="zoomOutBtn" class="icon-btn" title="Zoom out" aria-label="Zoom out" disabled>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>
+      </button>
+      <span id="zoomLabel" class="zoom-label">100%</span>
+      <button id="zoomInBtn" class="icon-btn" title="Zoom in" aria-label="Zoom in" disabled>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button id="fitWidthBtn" class="btn" title="Fit page to width" disabled>Fit width</button>
+    </div>
+
+    <span class="sep" aria-hidden="true"></span>
+
+    <div class="group find" role="search">
+      <svg class="icon muted" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="findInput" type="search" placeholder="Find in document" aria-label="Find in document" disabled>
+      <span id="findCount" class="find-count"></span>
+      <button id="findPrevBtn" class="icon-btn" title="Previous match (Shift+Enter)" aria-label="Previous match" disabled>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+      </button>
+      <button id="findNextBtn" class="icon-btn" title="Next match (Enter)" aria-label="Next match" disabled>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+    </div>
+
+    <span class="sep" aria-hidden="true"></span>
+
+    <button id="commentsBtn" class="btn toggle" aria-pressed="false" title="Show or hide comments" disabled>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Comments
+      <span id="commentCount" class="badge">0</span>
+    </button>
+  </div>
+</header>
+
+<div class="workspace">
+  <div id="stage">
+    <div id="viewerContainer">
+      <div id="viewer" class="pdfViewer"></div>
+      <div id="message" role="status"></div>
+    </div>
+  </div>
+
+  <aside id="commentsPanel" class="panel" aria-label="Comments" hidden>
+    <div class="panel-head">
+      <h2>Comments</h2>
+      <button id="closeComments" class="icon-btn" aria-label="Close comments">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div id="commentList" class="panel-body"></div>
+  </aside>
 </div>
+
 <div id="dropHint" hidden>Drop a PDF to open it</div>
 <script src="polyfills.js"></script>
 <script type="module" src="app.js"></script>

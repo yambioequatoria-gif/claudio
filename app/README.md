@@ -14,6 +14,10 @@ After that, clicking a PDF just opens it. You don't need to run anything else.
 
 To check the server is running, open http://localhost:8080 in Edge. To run it in a visible window for troubleshooting, double-click `run.bat`. To stop the background server, end the `powershell` process in Task Manager, or sign out and back in after removing "Lite PDF server" from the Startup folder (`shell:startup`).
 
+## Comments
+
+The Comments button lists every comment in the file, including sticky notes, highlight and text-box comments, and their replies, whether they were made in Acrobat, Foxit, Preview or this app. Click a page label to jump to it. Comments are read-only for now; replying comes with the editing work.
+
 ## Use
 
 Open with Ctrl+O, the Open button, or drag a PDF into the window. Page navigation is in the toolbar. Zoom with + and −, or Fit width. Find with Ctrl+F; Enter goes to the next match, Shift+Enter to the previous.
@@ -22,8 +26,8 @@ Large files stay responsive because only pages near the screen are drawn.
 
 ## Layout
 
-`index.html`, `app.js`, `app.css` are the app. `serve.ps1` is the local server, `setup.ps1` registers it at sign-in, and the `.bat` files are double-click wrappers for them. `polyfills.js` patches a method older browsers lack. `sw.js` lets the app load offline once it has been opened. `manifest.webmanifest` declares PDF file handling. `vendor/pdfjs/` is pdf.js 6.3.289, Apache-2.0 licensed (see `vendor/pdfjs/LICENSE`), copied in so nothing is loaded from a CDN.
+`index.html`, `app.js`, `app.css` are the app. `serve.ps1` is the local server, `setup.ps1` registers it at sign-in, and the `.bat` files are double-click wrappers for them. `polyfills.js` patches a method older browsers lack. `sw.js` lets the app load offline once it has been opened. `manifest.webmanifest` declares PDF file handling. `vendor/pdfjs/` is pdf.js 6.3.289, Apache-2.0 licensed (see `vendor/pdfjs/LICENSE`), copied in so nothing is loaded from a CDN. `vendor/pdf-lib/` is pdf-lib 1.17.1 (MIT), used to read comments and, later, to edit files. `comments.js` reads annotations.
 
 ## Status
 
-Tested in headless Chromium: opening a 20-page and a 400-page PDF, page jumps, zoom, find, and a file-replace. The server script was run under PowerShell 7 on Linux. Not yet tested on Windows or in Edge: `setup.bat`, Windows PowerShell 5, installing the app, opening a PDF from Explorer, and password-protected PDFs.
+Tested in headless Chromium: opening a 20-page and a 400-page PDF, page jumps, zoom, find, a file-replace, and reading threaded comments from a file with sticky notes, replies and a highlight. The server script was run under PowerShell 7 on Linux. Not yet tested on Windows or in Edge: `setup.bat`, Windows PowerShell 5, installing the app, opening a PDF from Explorer, and password-protected PDFs.

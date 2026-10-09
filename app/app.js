@@ -1,5 +1,6 @@
 import * as pdfjsLib from "./vendor/pdfjs/pdf.mjs";
 import * as pdfjsViewer from "./vendor/pdfjs/pdf_viewer.mjs";
+import { readComments } from "./comments.js";
 
 const VENDOR = new URL("./vendor/pdfjs/", import.meta.url).href;
 
@@ -26,6 +27,11 @@ const els = {
   dropHint: $("dropHint"),
   container: $("viewerContainer"),
   viewer: $("viewer"),
+  commentsBtn: $("commentsBtn"),
+  commentCount: $("commentCount"),
+  commentsPanel: $("commentsPanel"),
+  closeComments: $("closeComments"),
+  commentList: $("commentList"),
 };
 
 const eventBus = new pdfjsViewer.EventBus();
@@ -37,6 +43,7 @@ const pdfViewer = new pdfjsViewer.PDFViewer({
   eventBus,
   linkService,
   findController,
+  imageResourcesPath: `${VENDOR}images/`,
 });
 linkService.setViewer(pdfViewer);
 
@@ -46,7 +53,7 @@ let openToken = 0;
 
 const controls = [
   els.prevBtn, els.nextBtn, els.pageInput, els.zoomOutBtn, els.zoomInBtn,
-  els.fitWidthBtn, els.findInput, els.findPrevBtn, els.findNextBtn,
+  els.fitWidthBtn, els.findInput, els.findPrevBtn, els.findNextBtn, els.commentsBtn,
 ];
 
 function setControlsEnabled(enabled) {
@@ -78,11 +85,12 @@ async function openFile(file) {
   setControlsEnabled(false);
   showMessage(`Opening ${file.name}…`);
   try {
-    const data = new Uint8Array(await file.arrayBuffer());
+    const bytes = new Uint8Array(await file.arrayBuffer());
     if (token !== openToken) return;
 
+    // pdf.js takes ownership of the buffer it is given, so the comment reader gets its own copy.
     const task = pdfjsLib.getDocument({
-      data,
+      data: bytes.slice(),
       isEvalSupported: false,
       cMapUrl: `${VENDOR}cmaps/`,
       cMapPacked: true,
@@ -104,19 +112,89 @@ async function openFile(file) {
     previousTask?.destroy();
 
     els.docName.textContent = file.name;
+    els.docName.title = file.name;
     document.title = `${file.name} · Lite PDF`;
-    els.pageCount.textContent = `/ ${doc.numPages}`;
+    els.pageCount.textContent = `of ${doc.numPages}`;
     els.pageInput.max = doc.numPages;
     showMessage("");
     setControlsEnabled(true);
     els.findInput.value = "";
     els.findCount.textContent = "";
     els.container.focus();
+
+    loadComments(bytes, token);
   } catch (err) {
     if (token === openToken) {
       showMessage(`Could not open ${file.name}: ${err.message}`);
     }
   }
+}
+
+// Comments are read separately from rendering, so a large file still shows up quickly.
+async function loadComments(bytes, token) {
+  renderCommentsMessage("Reading comments…");
+  try {
+    const threads = await readComments(bytes);
+    if (token !== openToken) return;
+    renderComments(threads);
+  } catch (err) {
+    if (token === openToken) {
+      renderCommentsMessage(`Could not read comments: ${err.message}`);
+      els.commentCount.textContent = "!";
+    }
+  }
+}
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function formatDate(date) {
+  return date ? date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "";
+}
+
+function renderCommentsMessage(text) {
+  els.commentList.replaceChildren(el("p", "empty", text));
+  els.commentCount.textContent = "0";
+}
+
+function commentNode(comment, isReply) {
+  const box = el("div", isReply ? "comment reply" : "comment");
+  const meta = el("div", "meta");
+  meta.append(el("strong", null, comment.author || "Unknown author"));
+  const when = formatDate(comment.date);
+  if (when) meta.append(` · ${when}`);
+  box.append(meta, el("p", "text", comment.text));
+  return box;
+}
+
+// Comment text comes from the PDF file, so it is always inserted as text, never as HTML.
+function renderComments(threads) {
+  const total = threads.reduce((sum, t) => sum + 1 + t.replies.length, 0);
+  els.commentCount.textContent = String(total);
+  if (threads.length === 0) {
+    renderCommentsMessage("No comments in this document.");
+    return;
+  }
+  const nodes = threads.map((thread) => {
+    const card = el("article", "thread");
+    const pageButton = el("button", "thread-page", `Page ${thread.page}`);
+    pageButton.type = "button";
+    pageButton.addEventListener("click", () => goToPage(thread.page));
+    card.append(pageButton, commentNode(thread, false));
+    for (const reply of thread.replies) card.append(commentNode(reply, true));
+    return card;
+  });
+  els.commentList.replaceChildren(...nodes);
+}
+
+function setCommentsOpen(open) {
+  els.commentsPanel.hidden = !open;
+  els.commentsBtn.setAttribute("aria-pressed", String(open));
+  if (open) els.closeComments.focus();
 }
 
 // Page and zoom events from the viewer keep the toolbar in sync.
@@ -191,6 +269,9 @@ els.findInput.addEventListener("keydown", (e) => {
 });
 els.findNextBtn.addEventListener("click", () => dispatchFind("again", false));
 els.findPrevBtn.addEventListener("click", () => dispatchFind("again", true));
+
+els.commentsBtn.addEventListener("click", () => setCommentsOpen(els.commentsPanel.hidden));
+els.closeComments.addEventListener("click", () => setCommentsOpen(false));
 
 window.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
