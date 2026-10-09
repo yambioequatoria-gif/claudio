@@ -11,7 +11,11 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $logFile = Join-Path $logDir "server.log"
 
 function Write-Log($message) {
-  Add-Content -LiteralPath $logFile -Value ("{0}  {1}" -f (Get-Date -Format "s"), $message)
+  try {
+    Add-Content -LiteralPath $logFile -Value ("{0}  {1}" -f (Get-Date -Format "s"), $message)
+  } catch {
+    # Logging must never stop the server.
+  }
 }
 
 $types = @{
@@ -78,6 +82,7 @@ try {
       if (($method -ne "GET" -and -not $headOnly) -or
           -not $file.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase) -or
           -not (Test-Path -LiteralPath $file -PathType Leaf)) {
+        Write-Log "Not found: $urlPath"
         Send-Response $stream 404 "text/plain; charset=utf-8" ([System.Text.Encoding]::UTF8.GetBytes("Not found")) $headOnly
       } else {
         $ext = [System.IO.Path]::GetExtension($file).ToLowerInvariant()

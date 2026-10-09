@@ -1,6 +1,16 @@
 # One-time setup. Makes Lite PDF start by itself each time you sign in to Windows, with no visible window.
 # Uses only your own user account, so no admin rights are needed.
 $appDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# The app needs these files. If any are missing, the download was incomplete or from the wrong branch.
+$required = @("index.html", "app.js", "app.css", "serve.ps1", "vendor\pdfjs\pdf.mjs", "vendor\pdfjs\pdf.worker.mjs", "vendor\pdfjs\pdf_viewer.mjs")
+$missing = $required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $appDir $_) -PathType Leaf) }
+if ($missing) {
+  Write-Host "This folder is incomplete. Missing files:"
+  $missing | ForEach-Object { Write-Host "  $_" }
+  Write-Host "Download the zip of branch claude/chat-vs-code-comparison-gg5ifg again and run setup.bat from its app folder."
+  return
+}
 $serve = Join-Path $appDir "serve.ps1"
 $powershell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
 $arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$serve`""
