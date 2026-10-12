@@ -593,6 +593,10 @@ export class PdfView extends EventTarget {
   }
 
   async #onDragMove(e) {
+    if (this.pointerTool?.active) {
+      this.pointerTool.move?.(e, this);
+      return;
+    }
     const d = this.drag;
     if (!d) return;
     if (!d.moved && Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < 4) return;

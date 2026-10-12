@@ -20,6 +20,7 @@
       <rect class="line" x="22" y="42" width="12" height="3" rx="1.5"/>
     </svg>
     <span id="docName" class="doc-name">No file open</span>
+    <span id="dirtyDot" class="dirty-dot" title="Unsaved changes" hidden></span>
   </div>
 
   <div class="tools">
@@ -28,6 +29,17 @@
       Open
     </button>
     <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
+    <div class="group" role="group" aria-label="File">
+      <button id="saveBtn" class="icon-btn" title="Save (Ctrl+S)" aria-label="Save" disabled>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h11l3 3v15H5zM8 3v5h7V3M8 21v-7h8v7"/></svg>
+      </button>
+      <button id="saveAsBtn" class="icon-btn" title="Save a copy (Ctrl+Shift+S)" aria-label="Save a copy" disabled>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+      </button>
+      <button id="printBtn" class="icon-btn" title="Print (Ctrl+P)" aria-label="Print" disabled>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v7H7z"/></svg>
+      </button>
+    </div>
 
     <span class="sep" aria-hidden="true"></span>
 
@@ -82,7 +94,50 @@
 </header>
 
 <div class="workspace">
+  <nav id="rail" class="rail" aria-label="Tools">
+    <button class="tool" data-tool="select" aria-pressed="true" title="Select and edit (V)" disabled>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 7-6 2-2 6z"/></svg>
+    </button>
+    <span class="rail-sep"></span>
+    <button class="tool" data-tool="highlight" aria-pressed="false" title="Highlight text (H)" disabled>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h7M14 4l6 6-8 8-5-1-1-5z"/></svg>
+    </button>
+    <button class="tool" data-tool="underline" aria-pressed="false" title="Underline text (U)" disabled>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v7a5 5 0 0 0 10 0V4M5 20h14"/></svg>
+    </button>
+    <button class="tool" data-tool="strikeout" aria-pressed="false" title="Strike through text (S)" disabled>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M16.5 7C15.5 5 9 5 8 8s3 3.5 4 4M8 17c1 2.5 7.500 2.500 8-1"/></svg>
+    </button>
+    <span class="rail-sep"></span>
+    <button class="tool" data-tool="note" aria-pressed="false" title="Add a comment (N)" disabled>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8 9h8M8 13h5"/></svg>
+    </button>
+    <button class="tool" data-tool="text" aria-pressed="false" title="Add text (T)" disabled>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg>
+    </button>
+    <button class="tool" data-tool="draw" aria-pressed="false" title="Draw (D)" disabled>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21l3.500-1L18 8.500 15.500 6 4 17.500zM14 7.500l2.500 2.500"/></svg>
+    </button>
+    <button class="tool" data-tool="rect" aria-pressed="false" title="Rectangle (R)" disabled>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="1.500"/></svg>
+    </button>
+    <span class="rail-sep"></span>
+    <button class="tool" data-tool="cover" aria-pressed="false" title="Cover with white (hides, does not remove)" disabled>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="7" width="16" height="10" rx="1.500" class="fillish"/></svg>
+    </button>
+    <button class="tool" data-tool="redact" aria-pressed="false" title="Redact: permanently remove text" disabled>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="9" width="16" height="6" rx="1" class="solid"/><path d="M4 4h4M16 4h4M4 20h4M16 20h4"/></svg>
+    </button>
+    <span class="rail-grow"></span>
+    <button id="undoBtn" class="tool plain" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg>
+    </button>
+    <button id="redoBtn" class="tool plain" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3"/></svg>
+    </button>
+  </nav>
   <div id="stage">
+    <div id="toolOptions" class="tool-options" hidden></div>
     <div id="viewerContainer">
       <div id="viewer" class="pdfViewer"></div>
       <div id="message" role="status"></div>
@@ -101,9 +156,12 @@
 </div>
 
 <div id="dropHint" hidden>Drop a PDF to open it</div>
+<div id="toast" role="status" hidden></div>
+<div id="printRoot" aria-hidden="true"></div>
 <dialog id="dialog">
   <form method="dialog" id="dialogForm">
     <h2 id="dialogTitle"></h2>
+    <p id="dialogMessage" class="dialog-message" hidden></p>
     <label id="dialogLabel"><span id="dialogText"></span><input id="dialogInput" autocomplete="off"></label>
     <p id="dialogError" class="dialog-error" hidden></p>
     <div class="dialog-actions">

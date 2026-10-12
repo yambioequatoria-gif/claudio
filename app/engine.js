@@ -10,6 +10,9 @@ import {
   PdfVerticalAlignment,
   PdfAnnotationBorderStyle,
   PdfAnnotationReplyType,
+  PdfBlendMode,
+  PdfAnnotationIcon,
+  PdfAnnotationLineEnding,
 } from "./vendor/embedpdf/embedpdf.js";
 
 export {
@@ -21,6 +24,9 @@ export {
   PdfVerticalAlignment,
   PdfAnnotationBorderStyle,
   PdfAnnotationReplyType,
+  PdfBlendMode,
+  PdfAnnotationIcon,
+  PdfAnnotationLineEnding,
 };
 
 let instance = null;

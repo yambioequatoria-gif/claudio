@@ -1,11 +1,19 @@
 import { engine, call, openDocument, closeDocument, PdfErrorCode, fromEngineRect } from "./engine.js";
 import { PdfView } from "./viewer.js";
+import { Editor } from "./editor.js";
 import { readComments } from "./comments.js";
-import { askText } from "./dialog.js";
+import { askText, askConfirm } from "./dialog.js";
+import { openPopover } from "./popover.js";
+import { parsePageRange, printPages } from "./print.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
   openBtn: $("openBtn"),
+  saveBtn: $("saveBtn"),
+  saveAsBtn: $("saveAsBtn"),
+  printBtn: $("printBtn"),
+  undoBtn: $("undoBtn"),
+  redoBtn: $("redoBtn"),
   fileInput: $("fileInput"),
   prevBtn: $("prevBtn"),
   nextBtn: $("nextBtn"),
@@ -20,34 +28,72 @@ const els = {
   findPrevBtn: $("findPrevBtn"),
   findNextBtn: $("findNextBtn"),
   docName: $("docName"),
+  dirtyDot: $("dirtyDot"),
   message: $("message"),
   dropHint: $("dropHint"),
+  toast: $("toast"),
   container: $("viewerContainer"),
   commentsBtn: $("commentsBtn"),
   commentCount: $("commentCount"),
   commentsPanel: $("commentsPanel"),
   closeComments: $("closeComments"),
   commentList: $("commentList"),
+  rail: $("rail"),
+  toolOptions: $("toolOptions"),
 };
 
 const view = new PdfView(els.container);
+const editor = new Editor({ view, optionsEl: els.toolOptions, railEl: els.rail });
 const state = { doc: null, name: "", handle: null };
 let openToken = 0;
 
 const controls = [
   els.prevBtn, els.nextBtn, els.pageInput, els.zoomOutBtn, els.zoomInBtn,
   els.fitWidthBtn, els.findInput, els.findPrevBtn, els.findNextBtn, els.commentsBtn,
+  els.saveAsBtn, els.printBtn, ...els.rail.querySelectorAll("[data-tool]"),
 ];
 
 function setControlsEnabled(enabled) {
   for (const el of controls) el.disabled = !enabled;
+  if (!enabled) {
+    els.saveBtn.disabled = true;
+    els.undoBtn.disabled = true;
+    els.redoBtn.disabled = true;
+  } else {
+    syncEditState();
+  }
 }
 
 function showMessage(text) {
   els.message.textContent = text;
 }
 
+let toastTimer = 0;
+function toast(text, ms = 2600) {
+  clearTimeout(toastTimer);
+  els.toast.textContent = text;
+  els.toast.hidden = false;
+  if (ms) toastTimer = setTimeout(() => (els.toast.hidden = true), ms);
+}
+
+function syncEditState() {
+  els.saveBtn.disabled = !state.doc || !editor.dirty;
+  els.undoBtn.disabled = !editor.history.undo.length;
+  els.redoBtn.disabled = !editor.history.redo.length;
+  els.dirtyDot.hidden = !editor.dirty;
+  if (state.name) document.title = `${editor.dirty ? "• " : ""}${state.name} · Lite PDF`;
+}
+
 // ------------------------------------------------------------------ opening
+
+async function confirmDiscard() {
+  if (!editor.dirty) return true;
+  return askConfirm({
+    title: "Discard unsaved changes?",
+    message: `${state.name} has changes that have not been saved. Opening another file will lose them.`,
+    okText: "Discard changes",
+  });
+}
 
 async function openBytes(bytes, name, handle = null) {
   const token = ++openToken;
@@ -83,12 +129,12 @@ async function openBytes(bytes, name, handle = null) {
     state.doc = doc;
     state.name = name;
     state.handle = handle;
+    editor.attach(doc);
     await view.setDocument(doc);
     if (previous) closeDocument(previous);
 
     els.docName.textContent = name;
     els.docName.title = name;
-    document.title = `${name} · Lite PDF`;
     els.pageCount.textContent = `of ${doc.pageCount}`;
     els.pageInput.max = doc.pageCount;
     els.pageInput.value = 1;
@@ -96,6 +142,7 @@ async function openBytes(bytes, name, handle = null) {
     els.findCount.textContent = "";
     showMessage("");
     setControlsEnabled(true);
+    editor.setTool("select");
     els.container.focus({ preventScroll: true });
     loadComments(token);
   } catch (err) {
@@ -104,6 +151,7 @@ async function openBytes(bytes, name, handle = null) {
 }
 
 async function openFile(file, handle = null) {
+  if (!(await confirmDiscard())) return;
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     await openBytes(bytes, file.name, handle);
@@ -113,12 +161,15 @@ async function openFile(file, handle = null) {
 }
 
 async function chooseFile() {
+  if (!(await confirmDiscard())) return;
   if (window.showOpenFilePicker) {
     try {
       const [handle] = await window.showOpenFilePicker({
         types: [{ description: "PDF documents", accept: { "application/pdf": [".pdf"] } }],
       });
-      await openFile(await handle.getFile(), handle);
+      const file = await handle.getFile();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      await openBytes(bytes, file.name, handle);
     } catch (err) {
       if (err?.name !== "AbortError") showMessage(`Could not open the file: ${err.message}`);
     }
@@ -127,10 +178,92 @@ async function chooseFile() {
   els.fileInput.click();
 }
 
+// ------------------------------------------------------------------- saving
+
+const PDF_TYPES = [{ description: "PDF documents", accept: { "application/pdf": [".pdf"] } }];
+
+async function writeToHandle(handle, blob) {
+  const writable = await handle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+
+/** Saves the open document. "Save" writes back to the file it came from; "Save a copy" always asks where. */
+async function saveDocument({ copy = false } = {}) {
+  if (!state.doc) return;
+  try {
+    toast("Saving…", 0);
+    const buffer = await call(engine().saveAsCopy(state.doc));
+    const blob = new Blob([buffer], { type: "application/pdf" });
+    let handle = copy ? null : state.handle;
+
+    if (handle?.createWritable) {
+      let granted = (await handle.queryPermission?.({ mode: "readwrite" })) === "granted";
+      if (!granted) granted = (await handle.requestPermission?.({ mode: "readwrite" })) === "granted";
+      if (!granted) handle = null;
+    }
+    if (handle?.createWritable) {
+      await writeToHandle(handle, blob);
+    } else if (window.showSaveFilePicker) {
+      const picked = await window.showSaveFilePicker({ suggestedName: state.name || "document.pdf", types: PDF_TYPES });
+      await writeToHandle(picked, blob);
+      if (!copy) {
+        state.handle = picked;
+        state.name = picked.name;
+        els.docName.textContent = picked.name;
+        els.docName.title = picked.name;
+      }
+    } else {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = state.name || "document.pdf";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    }
+    if (!copy) editor.markClean();
+    toast(copy ? "Copy saved" : "Saved");
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      toast("", 1);
+      els.toast.hidden = true;
+      return;
+    }
+    toast(`Could not save: ${err.message}`, 6000);
+  }
+}
+
+// ----------------------------------------------------------------- printing
+
+async function printDocument() {
+  if (!state.doc) return;
+  const count = state.doc.pageCount;
+  let indices = null;
+  const answer = await askText({
+    title: "Print",
+    label: `Pages to print, for example 1-3, 5. Leave empty to print all ${count}.`,
+    okText: "Print",
+    validate: (v) => (parsePageRange(v, count) ? null : `Enter page numbers between 1 and ${count}.`),
+  });
+  if (answer === null) return;
+  indices = parsePageRange(answer, count);
+  try {
+    await printPages(state.doc, indices, (n, total) => toast(`Preparing page ${n} of ${total}…`, 0));
+    els.toast.hidden = true;
+  } catch (err) {
+    toast(`Could not print: ${err.message}`, 6000);
+  }
+}
+
 // ----------------------------------------------------------------- comments
 
-async function loadComments(token) {
-  renderCommentsMessage("Reading comments…");
+let commentsTimer = 0;
+function refreshComments() {
+  clearTimeout(commentsTimer);
+  commentsTimer = setTimeout(() => state.doc && loadComments(openToken, { quiet: true }), 150);
+}
+
+async function loadComments(token, { quiet = false } = {}) {
+  if (!quiet) renderCommentsMessage("Reading comments…");
   try {
     const threads = await readComments(state.doc);
     if (token !== openToken) return;
@@ -166,6 +299,13 @@ function avatarColor(name) {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 }
 
+function actionButton(label, onClick) {
+  const b = el("button", "link-btn", label);
+  b.type = "button";
+  b.addEventListener("click", onClick);
+  return b;
+}
+
 function commentNode(comment, isReply) {
   const author = comment.author || "Unknown author";
   const box = el("div", isReply ? "comment reply" : "comment");
@@ -176,9 +316,72 @@ function commentNode(comment, isReply) {
   meta.append(el("strong", null, author));
   const when = formatDate(comment.date);
   if (when) meta.append(` · ${when}`);
-  body.append(meta, el("p", "text", comment.text));
+  const text = el("p", "text", comment.text);
+
+  const actions = el("div", "comment-actions");
+  actions.append(
+    actionButton("Reply", () => openReplyBox(body, comment)),
+    actionButton("Edit", (e) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      openPopover({
+        x: r.left - 200,
+        y: r.bottom + 6,
+        value: comment.text,
+        submitText: "Save",
+        onSubmit: (value) => {
+          if (value.trim() && value !== comment.text) editor.editComment(comment, value).catch((err) => toast(`Could not edit: ${err.message}`, 5000));
+        },
+      });
+    }),
+    actionButton("Delete", async () => {
+      const ok = await askConfirm({ title: "Delete this comment?", message: "The comment and any replies to it are removed from the document.", okText: "Delete" });
+      if (ok) editor.deleteComment(comment).catch((err) => toast(`Could not delete: ${err.message}`, 5000));
+    })
+  );
+  body.append(meta, text, actions);
   box.append(avatar, body);
   return box;
+}
+
+function openReplyBox(container, comment) {
+  const existing = container.querySelector(".reply-box");
+  if (existing) {
+    existing.querySelector("textarea").focus();
+    return;
+  }
+  const box = el("div", "reply-box");
+  const area = document.createElement("textarea");
+  area.placeholder = "Write a reply…";
+  const row = el("div", "row");
+  const cancel = el("button", "btn", "Cancel");
+  cancel.type = "button";
+  const post = el("button", "btn primary", "Reply");
+  post.type = "button";
+  row.append(cancel, post);
+  box.append(area, row);
+  container.append(box);
+  area.focus();
+  cancel.addEventListener("click", () => box.remove());
+  const submit = async () => {
+    const value = area.value.trim();
+    if (!value) return;
+    post.disabled = true;
+    try {
+      await editor.reply(comment, value);
+    } catch (err) {
+      toast(`Could not reply: ${err.message}`, 5000);
+      post.disabled = false;
+    }
+  };
+  post.addEventListener("click", submit);
+  area.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      submit();
+    } else if (e.key === "Escape") {
+      box.remove();
+    }
+  });
 }
 
 // Comment text comes from the PDF file, so it is always inserted as text, never as HTML.
@@ -186,7 +389,7 @@ function renderComments(threads) {
   const total = threads.reduce((sum, t) => sum + 1 + t.replies.length, 0);
   els.commentCount.textContent = String(total);
   if (threads.length === 0) {
-    renderCommentsMessage("No comments in this document.");
+    renderCommentsMessage("No comments in this document. Use the comment tool to add one.");
     return;
   }
   const nodes = threads.map((thread) => {
@@ -209,6 +412,23 @@ function setCommentsOpen(open) {
   els.commentsBtn.setAttribute("aria-pressed", String(open));
   if (open) els.closeComments.focus();
 }
+
+// ------------------------------------------------------------ editor events
+
+editor.addEventListener("change", syncEditState);
+editor.addEventListener("edited", refreshComments);
+editor.addEventListener("error", (e) => toast(e.detail.message, 6000));
+els.undoBtn.addEventListener("click", () => editor.undo());
+els.redoBtn.addEventListener("click", () => editor.redo());
+els.saveBtn.addEventListener("click", () => saveDocument());
+els.saveAsBtn.addEventListener("click", () => saveDocument({ copy: true }));
+els.printBtn.addEventListener("click", printDocument);
+
+window.addEventListener("beforeunload", (e) => {
+  if (!editor.dirty) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
 
 // ------------------------------------------------------------ view -> toolbar
 
@@ -278,6 +498,12 @@ window.addEventListener("keydown", (e) => {
   if (mod && key === "o") {
     e.preventDefault();
     chooseFile();
+  } else if (mod && key === "s") {
+    e.preventDefault();
+    if (state.doc) saveDocument({ copy: e.shiftKey });
+  } else if (mod && key === "p") {
+    e.preventDefault();
+    printDocument();
   } else if (mod && key === "f") {
     if (!els.findInput.disabled) {
       e.preventDefault();
@@ -321,7 +547,7 @@ window.addEventListener("drop", async (e) => {
   const item = e.dataTransfer.items?.[0];
   const file = e.dataTransfer.files[0];
   if (!isPdf(file)) {
-    showMessage("That file is not a PDF.");
+    toast("That file is not a PDF.");
     return;
   }
   let handle = null;
@@ -348,7 +574,8 @@ if ("serviceWorker" in navigator) {
 
 // Start the engine now so the first file opens quickly.
 engine();
+setControlsEnabled(false);
 showMessage("Open a PDF to start, or drag one into this window.");
 
 // For tests and debugging.
-window.__lite = { view, state };
+window.__lite = { view, state, editor };
