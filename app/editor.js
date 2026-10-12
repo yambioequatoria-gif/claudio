@@ -58,25 +58,28 @@ const el = (tag, className, text) => {
   return n;
 };
 
+// Colours and sizes are shared by every open document, so a tool looks the same in each tab.
+const sharedOptions = {
+  highlight: { color: stored.get("opt.highlight", HIGHLIGHT_COLORS[0]) },
+  underline: { color: stored.get("opt.underline", PEN_COLORS[0]) },
+  strikeout: { color: stored.get("opt.strikeout", PEN_COLORS[0]) },
+  text: { color: stored.get("opt.text", PEN_COLORS[1]), size: stored.get("opt.textSize", 14) },
+  draw: { color: stored.get("opt.draw", PEN_COLORS[0]), width: stored.get("opt.drawWidth", 2) },
+  rect: { color: stored.get("opt.rect", PEN_COLORS[0]), width: stored.get("opt.rectWidth", 2) },
+};
+
 export class Editor extends EventTarget {
-  constructor({ view, optionsEl, railEl }) {
+  constructor({ view, optionsEl }) {
     super();
     this.view = view;
     this.optionsEl = optionsEl;
-    this.railEl = railEl;
+    this.active = false; // only the editor of the visible tab answers the keyboard and draws the options bar
     this.doc = null;
     this.tool = "select";
     this.history = { undo: [], redo: [] };
     this.dirty = false;
     this.selected = null; // { page, id }
-    this.options = {
-      highlight: { color: stored.get("opt.highlight", HIGHLIGHT_COLORS[0]) },
-      underline: { color: stored.get("opt.underline", PEN_COLORS[0]) },
-      strikeout: { color: stored.get("opt.strikeout", PEN_COLORS[0]) },
-      text: { color: stored.get("opt.text", PEN_COLORS[1]), size: stored.get("opt.textSize", 14) },
-      draw: { color: stored.get("opt.draw", PEN_COLORS[0]), width: stored.get("opt.drawWidth", 2) },
-      rect: { color: stored.get("opt.rect", PEN_COLORS[0]), width: stored.get("opt.rectWidth", 2) },
-    };
+    this.options = sharedOptions;
     this.handlers = {
       select: this.#selectTool(),
       note: this.#noteTool(),
@@ -89,7 +92,6 @@ export class Editor extends EventTarget {
     view.addEventListener("selection", (e) => this.#onTextSelection(e.detail.has));
     view.addEventListener("data", (e) => this.#drawSelected(e.detail.page));
     window.addEventListener("keydown", (e) => this.#onKey(e));
-    for (const btn of railEl.querySelectorAll("[data-tool]")) btn.addEventListener("click", () => this.setTool(btn.dataset.tool));
     this.setTool("select");
   }
 
@@ -155,11 +157,11 @@ export class Editor extends EventTarget {
     if (!this.handlers[name] && !["highlight", "underline", "strikeout"].includes(name)) name = "select";
     closePopover();
     this.tool = name;
-    for (const btn of this.railEl.querySelectorAll("[data-tool]")) btn.setAttribute("aria-pressed", String(btn.dataset.tool === name));
     this.view.pointerTool = this.handlers[name] ?? null;
     this.view.pagesEl.dataset.tool = name;
     if (name !== "select") this.#select(null);
-    this.#renderOptions();
+    if (this.active) this.#renderOptions();
+    this.dispatchEvent(new CustomEvent("tool", { detail: { tool: name } }));
     // Text already selected when a markup tool is chosen is marked up straight away.
     if (["highlight", "underline", "strikeout"].includes(name) && this.view.hasSelection()) this.#onTextSelection(true);
   }
@@ -891,7 +893,7 @@ export class Editor extends EventTarget {
   // ---------------------------------------------------------------- keyboard
 
   #onKey(e) {
-    if (!this.doc) return;
+    if (!this.doc || !this.active) return;
     const t = e.target;
     const typing = t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t?.isContentEditable || document.querySelector("dialog[open]");
     if (typing) return;

@@ -87,3 +87,44 @@ export function askConfirm({ title: heading, message: body, okText = "OK" } = {}
     okButton.focus();
   });
 }
+
+const choiceDialog = document.getElementById("choiceDialog");
+const choiceTitle = document.getElementById("choiceTitle");
+const choiceMessage = document.getElementById("choiceMessage");
+const choiceActions = document.getElementById("choiceActions");
+
+/**
+ * A question with several answers. `choices` is [{ key, label, primary?, danger? }]; resolves with the chosen key,
+ * or null if the dialog was dismissed.
+ */
+export function askChoice({ title: heading, message: body, choices }) {
+  return new Promise((resolve) => {
+    choiceTitle.textContent = heading;
+    choiceMessage.textContent = body;
+    choiceActions.replaceChildren();
+    let answered = false;
+    const finish = (key) => {
+      if (answered) return;
+      answered = true;
+      choiceDialog.removeEventListener("cancel", onCancel);
+      if (choiceDialog.open) choiceDialog.close();
+      resolve(key);
+    };
+    const onCancel = (e) => {
+      e.preventDefault();
+      finish(null);
+    };
+    for (const c of choices) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = c.primary ? "btn primary" : "btn";
+      if (c.danger) b.classList.add("danger");
+      b.textContent = c.label;
+      b.addEventListener("click", () => finish(c.key));
+      choiceActions.append(b);
+    }
+    choiceDialog.addEventListener("cancel", onCancel);
+    choiceDialog.showModal();
+    choiceActions.querySelector(".primary")?.focus();
+  });
+}

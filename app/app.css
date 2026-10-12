@@ -259,6 +259,168 @@ input:disabled { opacity: 0.4; cursor: default; }
   .tools { flex-wrap: wrap; }
 }
 
+/* Tabs */
+.tabbar {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-height: 38px;
+  padding: 4px 8px 0;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.tabbar[hidden] { display: none; }
+.tab-list {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tab-list::-webkit-scrollbar { display: none; }
+.tabbar > .icon-btn { align-self: center; flex: none; margin-left: 2px; }
+.tab-list + .icon-btn { margin-right: auto; }
+.tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 200px;
+  min-width: 112px;
+  max-width: 220px;
+  padding: 0 8px 0 12px;
+  border-radius: 9px 9px 0 0;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.tab:hover { background: var(--hover); color: var(--text); }
+.tab[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 -1px 0 var(--line), 1px 0 0 var(--line), -1px 0 0 var(--line);
+}
+.tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--surface);
+}
+.tab[aria-selected="true"]::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 0;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--accent);
+}
+.tab:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.tab.dragging { opacity: 0.45; }
+.tab.drop-before { box-shadow: inset 3px 0 0 var(--accent); }
+.tab.drop-after { box-shadow: inset -3px 0 0 var(--accent); }
+.tab-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.tab-dot { display: none; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.tab.dirty .tab-dot { display: block; }
+.tab-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  opacity: 0;
+  cursor: pointer;
+}
+.tab-close .icon { width: 13px; height: 13px; }
+.tab:hover .tab-close, .tab[aria-selected="true"] .tab-close, .tab:focus-within .tab-close { opacity: 0.7; }
+.tab-close:hover { opacity: 1 !important; background: var(--hover); }
+/* An unsaved tab shows a dot; the close button takes its place while the pointer is over the tab. */
+.tab.dirty:hover .tab-dot { display: none; }
+.tab.dirty:not(:hover):not(:focus-within) .tab-close { display: none; }
+.tab.pinned { flex: none; min-width: 0; max-width: 150px; padding: 0 10px; gap: 5px; }
+.tab-pin { display: grid; place-items: center; flex: none; }
+.tab-pin .icon { width: 13px; height: 13px; }
+
+/* Menus and the tab switcher */
+.menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 230px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(28, 27, 25, 0.28);
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover:not(:disabled), .menu-item:focus-visible { background: var(--hover); outline: none; }
+.menu-item:disabled { opacity: 0.4; cursor: default; }
+.menu-hint { color: var(--muted); font-size: 12px; }
+.menu-sep { height: 1px; margin: 5px 4px; background: var(--line); }
+.menu-heading { padding: 6px 10px 3px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+
+dialog.switcher { width: min(520px, calc(100vw - 32px)); padding: 12px; margin-top: 12vh; }
+.switcher input {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.switcher input:focus { outline: none; border-color: var(--accent); }
+.switch-list { max-height: 50vh; margin-top: 8px; overflow-y: auto; }
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.switch-row:hover { background: var(--hover); }
+.switch-row[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); }
+.switch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.switch-tag { flex: none; color: var(--muted); font-size: 12px; }
+.dialog-actions .btn.danger { color: var(--accent); }
+
 /* Workspace */
 .workspace {
   display: flex;
@@ -270,13 +432,17 @@ input:disabled { opacity: 0.4; cursor: default; }
   min-width: 0;
   position: relative;
 }
-#viewerContainer {
+#panes { position: absolute; inset: 0; }
+.viewer-pane {
   position: absolute;
   inset: 0;
   overflow: auto;
+  outline: none;
   background: var(--stage);
   scrollbar-color: var(--line-strong) transparent;
 }
+/* A background tab keeps its layout and scroll position but is not shown or clickable. */
+.viewer-pane.inactive { visibility: hidden; pointer-events: none; }
 #message {
   position: absolute;
   inset: 0;
@@ -507,7 +673,9 @@ input:disabled { opacity: 0.4; cursor: default; }
 .pages-head { padding: 10px 8px 8px; border-bottom: 1px solid var(--line); }
 .pages-head h2 { margin: 0 0 6px 6px; font-size: 13px; font-weight: 600; }
 .page-tools { display: flex; gap: 2px; }
-.thumbs { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.thumbs-host { flex: 1; min-height: 0; position: relative; }
+.thumbs { position: absolute; inset: 0; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.thumbs[hidden] { display: none; }
 .thumb {
   position: relative;
   display: flex;

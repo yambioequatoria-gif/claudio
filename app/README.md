@@ -20,6 +20,10 @@ To check the server is running, open http://localhost:8080 in Edge. To run it in
 
 Reading: smooth scrolling and zoom (Ctrl+wheel, Ctrl and plus or minus, Ctrl+0 for fit width), page navigation, search, text selection by drag, double-click (word), triple-click (line) and Ctrl+A, copy, and clickable links. Plain-text web and email addresses are linked as well. Large files stay responsive because only pages near the screen are drawn.
 
+Tabs: every PDF opens in its own tab, each with its own reading position, undo history, comments and page thumbnails. With the app installed, opening another PDF from Explorer adds a tab to the window that is already open instead of starting a new window. If it still opens a new window, uninstall the app in Edge (Settings, Apps) and install it again so Edge picks up the change.
+
+Tab order: drag tabs to arrange them. Pin a tab (right-click, Pin tab) to keep it at the left, safe from sorting and from accidental closing. The arrow at the right of the tab strip sorts the unpinned tabs by name, by most recently used, by the order you opened them, or with unsaved ones first. Ctrl+K opens a quick switcher: type part of a file name and press Enter, with the tab you used before this one preselected. When many tabs are open the strip scrolls, and the switcher always lists all of them. Closing a tab with unsaved changes asks whether to save. Middle-click closes a tab. Alt+1 to Alt+9 jump to a tab, and Ctrl+Tab and Ctrl+PageDown move between neighbours, where Edge lets the page have them.
+
 Comments: the Comments panel lists every comment in the file, including sticky notes, highlight and text-box comments and their threaded replies, from any PDF app. You can reply, edit and delete from the panel.
 
 Editing: the rail on the left has Select, Highlight, Underline, Strike through, Comment, Add text, Draw, Rectangle, Cover and Redact. Single-key shortcuts: V, H, U, S, N, T, D, R. Select an annotation to move it, double-click to edit its text, press Delete to remove it. Undo and redo are Ctrl+Z and Ctrl+Y.
@@ -38,7 +42,7 @@ Not done yet: digital signatures, and page changes on password-protected files. 
 
 No build step and no network access at run time. `index.html`, `app.css` and the `.js` files next to it are the app:
 
-`engine.js` wraps the PDF engine. `viewer.js` lays out and renders pages and handles selection, links and search. `pagedata.js` holds the text geometry: lines of glyph boxes, hit-testing, selection rectangles, auto-detected links, and the correction that snaps a link's area to the text it covers. `editor.js` has the editing tools and undo. `comments.js` builds comment threads. `thumbs.js` and `pageops.js` are the Pages panel and page changes. `forms.js` puts controls over form fields. `print.js` renders pages for printing. `main.js` wires it together.
+`tabs.js` draws the tab strip, its menus and the switcher; `main.js` owns the open documents. `engine.js` wraps the PDF engine. `viewer.js` lays out and renders pages and handles selection, links and search. `pagedata.js` holds the text geometry: lines of glyph boxes, hit-testing, selection rectangles, auto-detected links, and the correction that snaps a link's area to the text it covers. `editor.js` has the editing tools and undo. `comments.js` builds comment threads. `thumbs.js` and `pageops.js` are the Pages panel and page changes. `forms.js` puts controls over form fields. `print.js` renders pages for printing. `main.js` wires it together.
 
 `sw.js` lets the app load offline once opened. `manifest.webmanifest` declares PDF file handling. `serve.ps1` is the local server, `setup.ps1` registers it at sign-in, and the `.bat` files are double-click wrappers.
 

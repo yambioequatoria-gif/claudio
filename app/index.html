@@ -28,7 +28,7 @@
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg>
       Open
     </button>
-    <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
+    <input type="file" id="fileInput" accept="application/pdf,.pdf" multiple hidden>
     <div class="group" role="group" aria-label="File">
       <button id="saveBtn" class="icon-btn" title="Save (Ctrl+S)" aria-label="Save" disabled>
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h11l3 3v15H5zM8 3v5h7V3M8 21v-7h8v7"/></svg>
@@ -95,6 +95,16 @@
     </button>
   </div>
 </header>
+
+<div id="tabbar" class="tabbar" hidden>
+  <div id="tabList" class="tab-list" role="tablist" aria-label="Open documents"></div>
+  <button id="newTabBtn" class="icon-btn" title="Open a PDF in a new tab (Ctrl+O)" aria-label="Open a PDF in a new tab">
+    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+  <button id="tabMenuBtn" class="icon-btn" title="All tabs and sorting" aria-label="All tabs and sorting" aria-haspopup="menu">
+    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+  </button>
+</div>
 
 <div class="workspace">
   <nav id="rail" class="rail" aria-label="Tools">
@@ -164,15 +174,13 @@
         </button>
       </div>
     </div>
-    <div id="thumbs" class="thumbs"></div>
+    <div id="thumbsHost" class="thumbs-host"></div>
     <input type="file" id="insertInput" accept="application/pdf,.pdf" hidden>
   </aside>
   <div id="stage">
     <div id="toolOptions" class="tool-options" hidden></div>
-    <div id="viewerContainer">
-      <div id="viewer" class="pdfViewer"></div>
-      <div id="message" role="status"></div>
-    </div>
+    <div id="panes"></div>
+    <div id="message" role="status"></div>
   </div>
 
   <aside id="commentsPanel" class="panel" aria-label="Comments" hidden>
@@ -186,6 +194,15 @@
   </aside>
 </div>
 
+<dialog id="choiceDialog">
+  <h2 id="choiceTitle"></h2>
+  <p id="choiceMessage" class="dialog-message"></p>
+  <div id="choiceActions" class="dialog-actions"></div>
+</dialog>
+<dialog id="switcher" class="switcher" aria-label="Go to tab">
+  <input id="switcherInput" type="search" placeholder="Go to tab…" aria-label="Filter open tabs" autocomplete="off">
+  <div id="switcherList" class="switch-list" role="listbox"></div>
+</dialog>
 <div id="dropHint" hidden>Drop a PDF to open it</div>
 <div id="toast" role="status" hidden></div>
 <div id="printRoot" aria-hidden="true"></div>

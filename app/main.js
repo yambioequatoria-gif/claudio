@@ -2,11 +2,12 @@ import { engine, call, openDocument, closeDocument, PdfErrorCode, fromEngineRect
 import { PdfView } from "./viewer.js";
 import { Editor } from "./editor.js";
 import { readComments } from "./comments.js";
-import { askText, askConfirm } from "./dialog.js";
+import { askText, askConfirm, askChoice } from "./dialog.js";
 import { openPopover } from "./popover.js";
 import { parsePageRange, printPages } from "./print.js";
 import { Thumbnails } from "./thumbs.js";
 import { rotatePages, deletePages, reorderPages } from "./pageops.js";
+import { TabStrip, showMenu, closeMenu, openSwitcher } from "./tabs.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -34,7 +35,7 @@ const els = {
   message: $("message"),
   dropHint: $("dropHint"),
   toast: $("toast"),
-  container: $("viewerContainer"),
+  panes: $("panes"),
   commentsBtn: $("commentsBtn"),
   commentCount: $("commentCount"),
   commentsPanel: $("commentsPanel"),
@@ -44,7 +45,7 @@ const els = {
   toolOptions: $("toolOptions"),
   pagesBtn: $("pagesBtn"),
   pagesPanel: $("pagesPanel"),
-  thumbs: $("thumbs"),
+  thumbsHost: $("thumbsHost"),
   rotLeftBtn: $("rotLeftBtn"),
   rotRightBtn: $("rotRightBtn"),
   delPagesBtn: $("delPagesBtn"),
@@ -53,11 +54,12 @@ const els = {
   insertInput: $("insertInput"),
 };
 
-const view = new PdfView(els.container);
-const editor = new Editor({ view, optionsEl: els.toolOptions, railEl: els.rail });
-const thumbs = new Thumbnails(els.thumbs);
-const state = { doc: null, name: "", handle: null };
-let openToken = 0;
+const strip = new TabStrip({ barEl: $("tabbar"), listEl: $("tabList"), newBtn: $("newTabBtn"), menuBtn: $("tabMenuBtn") });
+
+/** @type {DocTab[]} in display order */
+const tabs = [];
+let active = null;
+let currentTool = "select";
 
 const controls = [
   els.prevBtn, els.nextBtn, els.pageInput, els.zoomOutBtn, els.zoomInBtn,
@@ -65,24 +67,6 @@ const controls = [
   els.saveAsBtn, els.printBtn, els.pagesBtn, els.insertPagesBtn, ...els.rail.querySelectorAll("[data-tool]"),
 ];
 const selectionTools = [els.rotLeftBtn, els.rotRightBtn, els.delPagesBtn, els.extractPagesBtn];
-
-function setControlsEnabled(enabled) {
-  for (const el of controls) el.disabled = !enabled;
-  if (!enabled) {
-    els.saveBtn.disabled = true;
-    els.undoBtn.disabled = true;
-    els.redoBtn.disabled = true;
-    for (const b of selectionTools) b.disabled = true;
-  } else {
-    syncEditState();
-    syncPageTools();
-  }
-}
-
-function syncPageTools() {
-  const has = state.doc && thumbs.selection().length > 0;
-  for (const b of selectionTools) b.disabled = !has;
-}
 
 function showMessage(text) {
   els.message.textContent = text;
@@ -92,33 +76,374 @@ let toastTimer = 0;
 function toast(text, ms = 2600) {
   clearTimeout(toastTimer);
   els.toast.textContent = text;
-  els.toast.hidden = false;
-  if (ms) toastTimer = setTimeout(() => (els.toast.hidden = true), ms);
+  els.toast.hidden = !text;
+  if (text && ms) toastTimer = setTimeout(() => (els.toast.hidden = true), ms);
+}
+
+// -------------------------------------------------------------------- tabs
+
+/** One open document: its own view, editor (undo history), thumbnails and comment list. */
+function createTab({ doc, name, handle, meta }) {
+  const id = crypto.randomUUID();
+  const pane = document.createElement("div");
+  pane.className = "viewer-pane inactive";
+  pane.tabIndex = -1;
+  els.panes.append(pane);
+  const view = new PdfView(pane);
+  view.setActive(false);
+  const editor = new Editor({ view, optionsEl: els.toolOptions });
+  const thumbsEl = document.createElement("div");
+  thumbsEl.className = "thumbs";
+  thumbsEl.hidden = true;
+  els.thumbsHost.append(thumbsEl);
+  const thumbs = new Thumbnails(thumbsEl);
+  const tab = {
+    id, name, handle, meta, doc, pane, view, editor, thumbs, thumbsEl,
+    threads: null, findQuery: "", findCount: "",
+    pinned: false, openedAt: Date.now(), lastUsed: 0, commentsToken: 0, commentsTimer: 0,
+  };
+  wireTab(tab);
+  return tab;
+}
+
+function wireTab(tab) {
+  const { view, editor, thumbs } = tab;
+  const isActive = () => tab === active;
+
+  view.addEventListener("page", (e) => {
+    thumbs.setCurrent(e.detail.page - 1);
+    if (isActive()) els.pageInput.value = e.detail.page;
+  });
+  view.addEventListener("zoom", () => isActive() && syncZoom());
+  view.addEventListener("ready", () => isActive() && syncZoom());
+  view.addEventListener("find", (e) => {
+    const { total, index, query } = e.detail;
+    if (!tab.findQuery) tab.findCount = "";
+    else if (total === 0) tab.findCount = query !== undefined ? "No matches" : "";
+    else tab.findCount = index >= 0 ? `${index + 1} of ${total}` : `${total} matches`;
+    if (isActive()) els.findCount.textContent = tab.findCount;
+  });
+  view.addEventListener("formchange", (e) => {
+    editor.markDirty();
+    thumbs.refreshPage(e.detail.page);
+  });
+  view.addEventListener("formerror", (e) => toast(`Could not fill in that field: ${e.detail.message}`, 5000));
+
+  editor.addEventListener("change", () => {
+    renderTabs();
+    if (isActive()) syncEditState();
+  });
+  editor.addEventListener("edited", (e) => {
+    refreshComments(tab);
+    if (e.detail?.page !== undefined) thumbs.refreshPage(e.detail.page);
+  });
+  editor.addEventListener("error", (e) => toast(e.detail.message, 6000));
+  editor.addEventListener("tool", (e) => {
+    if (!isActive()) return;
+    currentTool = e.detail.tool;
+    syncRail();
+  });
+
+  thumbs.addEventListener("selection", () => isActive() && syncPageTools());
+  thumbs.addEventListener("go", (e) => view.goToPage(e.detail.page + 1));
+  thumbs.addEventListener("delete", () => isActive() && els.delPagesBtn.click());
+  thumbs.addEventListener("reorder", async (e) => {
+    const { order, moved } = e.detail;
+    const done = await applyPageChange(tab, "reorder pages", (bytes) => reorderPages(bytes, order));
+    if (done) tab.thumbs.selectPages(moved.map((old) => order.indexOf(old)).sort((a, b) => a - b));
+  });
+}
+
+/** Tabs as the strip shows them. Two tabs with the same file name are told apart by a number. */
+function tabInfos(list = tabs) {
+  const seen = new Map();
+  const numbers = new Map();
+  for (const t of tabs) {
+    const n = (seen.get(t.name) ?? 0) + 1;
+    seen.set(t.name, n);
+    numbers.set(t.id, n);
+  }
+  return list.map((t) => ({
+    id: t.id,
+    title: numbers.get(t.id) > 1 ? `${t.name} (${numbers.get(t.id)})` : t.name,
+    tooltip: t.name,
+    dirty: t.editor.dirty,
+    pinned: t.pinned,
+  }));
+}
+
+function renderTabs() {
+  strip.render(tabInfos(), active?.id ?? null);
+}
+
+function activateTab(tab) {
+  if (!tab || tab === active) return;
+  const previous = active;
+  if (previous) {
+    previous.pane.classList.add("inactive");
+    previous.pane.removeAttribute("id");
+    previous.thumbsEl.hidden = true;
+    previous.view.setActive(false);
+    previous.editor.active = false;
+    clearTimeout(findTimer);
+  }
+  active = tab;
+  tab.lastUsed = Date.now();
+  tab.pane.id = "viewerContainer";
+  tab.pane.classList.remove("inactive");
+  tab.thumbsEl.hidden = false;
+  tab.view.setActive(true);
+  tab.editor.active = true;
+  tab.editor.setTool(currentTool);
+  showMessage("");
+  syncAll();
+  renderTabs();
+  if (tab.threads === null) loadComments(tab);
+  tab.pane.focus({ preventScroll: true });
+}
+
+function moveTab(id, beforeId) {
+  const tab = tabs.find((t) => t.id === id);
+  if (!tab || id === beforeId) return;
+  const without = tabs.filter((t) => t !== tab);
+  const pinned = without.filter((t) => t.pinned);
+  const rest = without.filter((t) => !t.pinned);
+  const target = without.find((t) => t.id === beforeId);
+  if (tab.pinned) {
+    const i = target?.pinned ? pinned.indexOf(target) : pinned.length;
+    pinned.splice(i, 0, tab);
+  } else {
+    const i = target && !target.pinned ? rest.indexOf(target) : target ? 0 : rest.length;
+    rest.splice(i, 0, tab);
+  }
+  tabs.splice(0, tabs.length, ...pinned, ...rest);
+  renderTabs();
+}
+
+function togglePin(tab) {
+  tab.pinned = !tab.pinned;
+  // A pinned tab goes to the end of the pinned group; an unpinned one to the start of the rest.
+  const others = tabs.filter((t) => t !== tab);
+  const pinned = others.filter((t) => t.pinned);
+  const rest = others.filter((t) => !t.pinned);
+  if (tab.pinned) pinned.push(tab);
+  else rest.unshift(tab);
+  tabs.splice(0, tabs.length, ...pinned, ...rest);
+  renderTabs();
+}
+
+/** Sorts the tabs that are not pinned; pinned tabs stay where they are. */
+function sortTabs(mode) {
+  const pinned = tabs.filter((t) => t.pinned);
+  const rest = tabs.filter((t) => !t.pinned);
+  const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+  if (mode === "name") rest.sort(byName);
+  else if (mode === "name-desc") rest.sort((a, b) => byName(b, a));
+  else if (mode === "recent") rest.sort((a, b) => b.lastUsed - a.lastUsed);
+  else if (mode === "opened") rest.sort((a, b) => a.openedAt - b.openedAt);
+  else if (mode === "unsaved") rest.sort((a, b) => Number(b.editor.dirty) - Number(a.editor.dirty));
+  tabs.splice(0, tabs.length, ...pinned, ...rest);
+  renderTabs();
+}
+
+async function closeTab(tab) {
+  if (tab.editor.dirty) {
+    activateTab(tab);
+    const choice = await askChoice({
+      title: `Save changes to ${tab.name}?`,
+      message: "Your changes will be lost if you do not save them.",
+      choices: [
+        { key: "save", label: "Save", primary: true },
+        { key: "discard", label: "Don’t save", danger: true },
+        { key: "cancel", label: "Cancel" },
+      ],
+    });
+    if (choice === null || choice === "cancel") return false;
+    if (choice === "save") {
+      await saveDocument(tab);
+      if (tab.editor.dirty) return false; // the save did not go through
+    }
+  }
+  const wasActive = tab === active;
+  const index = tabs.indexOf(tab);
+  tabs.splice(index, 1);
+  clearTimeout(tab.commentsTimer);
+  tab.commentsToken++;
+  tab.view.clear();
+  tab.thumbs.clear();
+  closeDocument(tab.doc);
+  tab.pane.remove();
+  tab.thumbsEl.remove();
+  if (wasActive) {
+    active = null;
+    // Go back to the tab used most recently, which is where the reader came from.
+    const next = [...tabs].sort((a, b) => b.lastUsed - a.lastUsed)[0];
+    if (next) activateTab(next);
+    else syncAll();
+  }
+  renderTabs();
+  return true;
+}
+
+async function closeMany(list) {
+  for (const t of list) {
+    if (!tabs.includes(t)) continue;
+    if (!(await closeTab(t))) return false;
+  }
+  return true;
+}
+
+strip.addEventListener("activate", (e) => activateTab(tabs.find((t) => t.id === e.detail.id)));
+strip.addEventListener("close", (e) => {
+  const t = tabs.find((x) => x.id === e.detail.id);
+  if (t) closeTab(t);
+});
+strip.addEventListener("reorder", (e) => moveTab(e.detail.id, e.detail.beforeId));
+strip.addEventListener("new", () => chooseFiles());
+strip.addEventListener("tabmenu", (e) => {
+  const t = tabs.find((x) => x.id === e.detail.id);
+  if (!t) return;
+  const i = tabs.indexOf(t);
+  showMenu(e.detail.x, e.detail.y, [
+    { label: "Close tab", onClick: () => closeTab(t) },
+    { label: "Close other tabs", disabled: tabs.length < 2, onClick: () => closeMany(tabs.filter((x) => x !== t && !x.pinned)) },
+    { label: "Close tabs to the right", disabled: i >= tabs.length - 1, onClick: () => closeMany(tabs.slice(i + 1).filter((x) => !x.pinned)) },
+    { separator: true },
+    { label: t.pinned ? "Unpin tab" : "Pin tab", onClick: () => togglePin(t) },
+    { separator: true },
+    { label: "Save", disabled: !t.editor.dirty, onClick: () => saveDocument(t) },
+    { label: "Save a copy…", onClick: () => saveDocument(t, { copy: true }) },
+  ]);
+});
+strip.addEventListener("menu", (e) => {
+  showMenu(e.detail.x, e.detail.y, [
+    { label: "Go to tab…", hint: "Ctrl+K", disabled: tabs.length === 0, onClick: openTabSwitcher },
+    { separator: true },
+    { heading: "Sort tabs" },
+    { label: "By name, A to Z", disabled: tabs.length < 2, onClick: () => sortTabs("name") },
+    { label: "By name, Z to A", disabled: tabs.length < 2, onClick: () => sortTabs("name-desc") },
+    { label: "Most recently used first", disabled: tabs.length < 2, onClick: () => sortTabs("recent") },
+    { label: "In the order opened", disabled: tabs.length < 2, onClick: () => sortTabs("opened") },
+    { label: "Unsaved changes first", disabled: tabs.length < 2, onClick: () => sortTabs("unsaved") },
+    { separator: true },
+    { label: "Close all tabs", disabled: tabs.length === 0, onClick: () => closeMany([...tabs]) },
+  ]);
+});
+
+function openTabSwitcher() {
+  if (!tabs.length) return;
+  const byRecent = [...tabs].sort((a, b) => b.lastUsed - a.lastUsed);
+  const infos = new Map(tabInfos().map((i) => [i.id, i]));
+  openSwitcher({
+    items: byRecent.map((t) => infos.get(t.id)),
+    activeId: active?.id,
+    onPick: (id) => activateTab(tabs.find((t) => t.id === id)),
+  });
+}
+
+function stepTab(delta) {
+  if (tabs.length < 2 || !active) return;
+  const i = tabs.indexOf(active);
+  activateTab(tabs[(i + delta + tabs.length) % tabs.length]);
+}
+
+// ------------------------------------------------------- toolbar follows tab
+
+function syncZoom() {
+  if (active) els.zoomLabel.textContent = `${Math.round(active.view.zoom * 100)}%`;
+}
+
+function syncRail() {
+  for (const btn of els.rail.querySelectorAll("[data-tool]")) btn.setAttribute("aria-pressed", String(btn.dataset.tool === currentTool));
 }
 
 function syncEditState() {
-  els.saveBtn.disabled = !state.doc || !editor.dirty;
-  els.undoBtn.disabled = !editor.history.undo.length;
-  els.redoBtn.disabled = !editor.history.redo.length;
-  els.dirtyDot.hidden = !editor.dirty;
-  if (state.name) document.title = `${editor.dirty ? "• " : ""}${state.name} · Lite PDF`;
+  const t = active;
+  els.saveBtn.disabled = !t || !t.editor.dirty;
+  els.undoBtn.disabled = !t || !t.editor.history.undo.length;
+  els.redoBtn.disabled = !t || !t.editor.history.redo.length;
+  els.dirtyDot.hidden = !t || !t.editor.dirty;
+  document.title = t ? `${t.editor.dirty ? "• " : ""}${t.name} · Lite PDF` : "Lite PDF";
+}
+
+function syncPageTools() {
+  const has = active && active.thumbs.selection().length > 0;
+  for (const b of selectionTools) b.disabled = !has;
+}
+
+/** Brings every part of the toolbar and side panels in line with the active tab. */
+function syncAll() {
+  const t = active;
+  for (const c of controls) c.disabled = !t;
+  if (!t) {
+    els.docName.textContent = "No file open";
+    els.docName.title = "";
+    els.pageCount.textContent = "of 0";
+    els.pageInput.value = 1;
+    els.zoomLabel.textContent = "100%";
+    els.findInput.value = "";
+    els.findCount.textContent = "";
+    els.commentCount.textContent = "0";
+    els.commentList.replaceChildren();
+    for (const b of selectionTools) b.disabled = true;
+    els.toolOptions.hidden = true;
+    syncEditState();
+    showMessage("Open a PDF to start, or drag one into this window.");
+    return;
+  }
+  els.docName.textContent = t.name;
+  els.docName.title = t.name;
+  els.pageCount.textContent = `of ${t.doc.pageCount}`;
+  els.pageInput.max = t.doc.pageCount;
+  els.pageInput.value = t.view.pageNumber;
+  syncZoom();
+  els.findInput.value = t.findQuery;
+  els.findCount.textContent = t.findCount;
+  if (t.threads) renderComments(t, t.threads);
+  else renderCommentsMessage("Reading comments…");
+  syncEditState();
+  syncPageTools();
+  syncRail();
 }
 
 // ------------------------------------------------------------------ opening
 
-async function confirmDiscard() {
-  if (!editor.dirty) return true;
-  return askConfirm({
-    title: "Discard unsaved changes?",
-    message: `${state.name} has changes that have not been saved. Opening another file will lose them.`,
-    okText: "Discard changes",
-  });
+async function sameFile(tab, file, handle) {
+  if (handle && tab.handle?.isSameEntry) {
+    try {
+      if (await handle.isSameEntry(tab.handle)) return true;
+    } catch {
+      // Fall back to comparing the file's details.
+    }
+  }
+  return tab.meta && tab.name === file.name && tab.meta.size === file.size && tab.meta.lastModified === file.lastModified;
 }
 
-async function openBytes(bytes, name, handle = null) {
-  const token = ++openToken;
-  setControlsEnabled(false);
-  showMessage(`Opening ${name}…`);
+async function openOne(file, handle = null) {
+  for (const t of tabs) {
+    if (await sameFile(t, file, handle)) {
+      activateTab(t);
+      toast(`${file.name} is already open`);
+      return;
+    }
+  }
+  let bytes;
+  try {
+    bytes = new Uint8Array(await file.arrayBuffer());
+  } catch (err) {
+    toast(`Could not read ${file.name}: ${err.message}`, 6000);
+    return;
+  }
+  await openBytes(bytes, file.name, handle, { size: file.size, lastModified: file.lastModified });
+}
+
+async function openMany(entries) {
+  for (const { file, handle } of entries) await openOne(file, handle);
+}
+
+async function openBytes(bytes, name, handle = null, meta = null) {
+  if (tabs.length) toast(`Opening ${name}…`, 0);
+  else showMessage(`Opening ${name}…`);
   try {
     let password;
     let doc;
@@ -130,72 +455,43 @@ async function openBytes(bytes, name, handle = null) {
         if (err.code !== PdfErrorCode.Password) throw err;
         password = await askText({
           title: "Password required",
-          label: password === undefined ? "This PDF is password protected." : "That password is not correct. Try again.",
+          label: password === undefined ? `${name} is password protected.` : "That password is not correct. Try again.",
           type: "password",
           okText: "Open",
         });
         if (password === null) {
-          if (token === openToken) showMessage(state.doc ? "" : "Open a PDF to start, or drag one into this window.");
-          if (state.doc) setControlsEnabled(true);
+          toast("", 1);
+          if (!tabs.length) showMessage("Open a PDF to start, or drag one into this window.");
           return;
         }
       }
     }
-    if (token !== openToken) {
-      closeDocument(doc);
-      return;
-    }
-    const previous = state.doc;
-    state.doc = doc;
-    state.name = name;
-    state.handle = handle;
-    editor.attach(doc);
-    await view.setDocument(doc);
-    thumbs.setDocument(doc);
-    if (previous) closeDocument(previous);
-
-    els.docName.textContent = name;
-    els.docName.title = name;
-    els.pageCount.textContent = `of ${doc.pageCount}`;
-    els.pageInput.max = doc.pageCount;
-    els.pageInput.value = 1;
-    els.findInput.value = "";
-    els.findCount.textContent = "";
-    showMessage("");
-    setControlsEnabled(true);
-    editor.setTool("select");
-    els.container.focus({ preventScroll: true });
-    loadComments(token);
+    const tab = createTab({ doc, name, handle, meta });
+    tab.editor.attach(doc);
+    await tab.view.setDocument(doc);
+    tab.thumbs.setDocument(doc);
+    tabs.push(tab);
+    toast("", 1);
+    activateTab(tab);
+    renderTabs();
   } catch (err) {
-    if (token === openToken) {
-      const unreadable = err.code === PdfErrorCode.WrongFormat || /LoadMemDocument|format/i.test(err.message);
-      showMessage(unreadable ? `${name} is not a valid PDF, or it is damaged.` : `Could not open ${name}: ${err.message}`);
-    }
+    const unreadable = err.code === PdfErrorCode.WrongFormat || /LoadMemDocument|format/i.test(err.message);
+    const message = unreadable ? `${name} is not a valid PDF, or it is damaged.` : `Could not open ${name}: ${err.message}`;
+    if (tabs.length) toast(message, 7000);
+    else showMessage(message);
   }
 }
 
-async function openFile(file, handle = null) {
-  if (!(await confirmDiscard())) return;
-  try {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    await openBytes(bytes, file.name, handle);
-  } catch (err) {
-    showMessage(`Could not read ${file.name}: ${err.message}`);
-  }
-}
-
-async function chooseFile() {
-  if (!(await confirmDiscard())) return;
+async function chooseFiles() {
   if (window.showOpenFilePicker) {
     try {
-      const [handle] = await window.showOpenFilePicker({
+      const handles = await window.showOpenFilePicker({
+        multiple: true,
         types: [{ description: "PDF documents", accept: { "application/pdf": [".pdf"] } }],
       });
-      const file = await handle.getFile();
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      await openBytes(bytes, file.name, handle);
+      await openMany(await Promise.all(handles.map(async (handle) => ({ file: await handle.getFile(), handle }))));
     } catch (err) {
-      if (err?.name !== "AbortError") showMessage(`Could not open the file: ${err.message}`);
+      if (err?.name !== "AbortError") toast(`Could not open the file: ${err.message}`, 6000);
     }
     return;
   }
@@ -212,14 +508,14 @@ async function writeToHandle(handle, blob) {
   await writable.close();
 }
 
-/** Saves the open document. "Save" writes back to the file it came from; "Save a copy" always asks where. */
-async function saveDocument({ copy = false } = {}) {
-  if (!state.doc) return;
+/** Saves a document. "Save" writes back to the file it came from; "Save a copy" always asks where. Returns true on success. */
+async function saveDocument(tab = active, { copy = false } = {}) {
+  if (!tab) return false;
   try {
     toast("Saving…", 0);
-    const buffer = await call(engine().saveAsCopy(state.doc));
+    const buffer = await call(engine().saveAsCopy(tab.doc));
     const blob = new Blob([buffer], { type: "application/pdf" });
-    let handle = copy ? null : state.handle;
+    let handle = copy ? null : tab.handle;
 
     if (handle?.createWritable) {
       let granted = (await handle.queryPermission?.({ mode: "readwrite" })) === "granted";
@@ -229,39 +525,40 @@ async function saveDocument({ copy = false } = {}) {
     if (handle?.createWritable) {
       await writeToHandle(handle, blob);
     } else if (window.showSaveFilePicker) {
-      const picked = await window.showSaveFilePicker({ suggestedName: state.name || "document.pdf", types: PDF_TYPES });
+      const picked = await window.showSaveFilePicker({ suggestedName: tab.name || "document.pdf", types: PDF_TYPES });
       await writeToHandle(picked, blob);
       if (!copy) {
-        state.handle = picked;
-        state.name = picked.name;
-        els.docName.textContent = picked.name;
-        els.docName.title = picked.name;
+        tab.handle = picked;
+        tab.name = picked.name;
+        tab.meta = null;
+        if (tab === active) syncAll();
+        renderTabs();
       }
     } else {
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = state.name || "document.pdf";
+      a.download = tab.name || "document.pdf";
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     }
-    if (!copy) editor.markClean();
+    if (!copy) tab.editor.markClean();
     toast(copy ? "Copy saved" : "Saved");
+    return true;
   } catch (err) {
     if (err?.name === "AbortError") {
       toast("", 1);
-      els.toast.hidden = true;
-      return;
+      return false;
     }
     toast(`Could not save: ${err.message}`, 6000);
+    return false;
   }
 }
 
 // ----------------------------------------------------------------- printing
 
-async function printDocument() {
-  if (!state.doc) return;
-  const count = state.doc.pageCount;
-  let indices = null;
+async function printDocument(tab = active) {
+  if (!tab) return;
+  const count = tab.doc.pageCount;
   const answer = await askText({
     title: "Print",
     label: `Pages to print, for example 1-3, 5. Leave empty to print all ${count}.`,
@@ -269,10 +566,10 @@ async function printDocument() {
     validate: (v) => (parsePageRange(v, count) ? null : `Enter page numbers between 1 and ${count}.`),
   });
   if (answer === null) return;
-  indices = parsePageRange(answer, count);
+  const indices = parsePageRange(answer, count);
   try {
-    await printPages(state.doc, indices, (n, total) => toast(`Preparing page ${n} of ${total}…`, 0));
-    els.toast.hidden = true;
+    await printPages(tab.doc, indices, (n, total) => toast(`Preparing page ${n} of ${total}…`, 0));
+    toast("", 1);
   } catch (err) {
     toast(`Could not print: ${err.message}`, 6000);
   }
@@ -282,45 +579,47 @@ async function printDocument() {
 
 const MAX_SNAPSHOT = 120 * 1024 * 1024;
 
-/** Replaces the open document with new file bytes, keeping the reader's zoom and place. */
-async function reloadDocument(bytes, { keepHistory = true } = {}) {
-  const token = ++openToken;
+/** Replaces a tab's document with new file bytes, keeping the reader's zoom and place. */
+async function reloadDocument(tab, bytes, { keepHistory = true } = {}) {
+  tab.commentsToken++;
   const doc = await openDocument(new Uint8Array(bytes));
-  const previous = state.doc;
-  state.doc = doc;
-  editor.attach(doc, { keepDirty: true, keepHistory });
-  await view.setDocument(doc, { keepView: true });
-  thumbs.setDocument(doc);
+  const previous = tab.doc;
+  tab.doc = doc;
+  tab.editor.attach(doc, { keepDirty: true, keepHistory });
+  await tab.view.setDocument(doc, { keepView: true });
+  tab.thumbs.setDocument(doc);
   if (previous) closeDocument(previous);
-  els.pageCount.textContent = `of ${doc.pageCount}`;
-  els.pageInput.max = doc.pageCount;
-  editor.markDirty();
-  syncPageTools();
-  loadComments(token, { quiet: true });
+  tab.editor.markDirty();
+  if (tab === active) {
+    els.pageCount.textContent = `of ${doc.pageCount}`;
+    els.pageInput.max = doc.pageCount;
+    syncPageTools();
+  }
+  loadComments(tab, { quiet: true });
 }
 
 /** Runs a change to the page list: snapshot, transform the bytes, reload, and record one undo step. */
-async function applyPageChange(label, transform) {
-  if (!state.doc) return null;
-  if (state.doc.isEncrypted) {
+async function applyPageChange(tab, label, transform) {
+  if (!tab) return null;
+  if (tab.doc.isEncrypted) {
     toast("Page changes are not available for password-protected files yet.", 6000);
     return null;
   }
   try {
     toast("Updating pages…", 0);
-    const before = new Uint8Array(await call(engine().saveAsCopy(state.doc)));
+    const before = new Uint8Array(await call(engine().saveAsCopy(tab.doc)));
     let after;
     try {
       after = await transform(before);
     } catch (err) {
       // A failed change must not leave the open document half changed.
-      await reloadDocument(before);
+      await reloadDocument(tab, before);
       throw err;
     }
-    await reloadDocument(after, { keepHistory: false });
+    await reloadDocument(tab, after, { keepHistory: false });
     const big = before.byteLength > MAX_SNAPSHOT || after.byteLength > MAX_SNAPSHOT;
-    editor.recordPageChange(label, big ? null : before, big ? null : after, (bytes) => reloadDocument(bytes));
-    els.toast.hidden = true;
+    tab.editor.recordPageChange(label, big ? null : before, big ? null : after, (bytes) => reloadDocument(tab, bytes));
+    toast("", 1);
     if (big) toast("This file is large, so that change cannot be undone.", 5000);
     return true;
   } catch (err) {
@@ -334,7 +633,7 @@ function setPagesOpen(open) {
   els.pagesBtn.setAttribute("aria-pressed", String(open));
 }
 
-const base = () => state.name.replace(/\.pdf$/i, "");
+const baseName = (tab) => tab.name.replace(/\.pdf$/i, "");
 
 async function exportBlob(blob, suggestedName) {
   if (window.showSaveFilePicker) {
@@ -350,39 +649,34 @@ async function exportBlob(blob, suggestedName) {
 }
 
 els.pagesBtn.addEventListener("click", () => setPagesOpen(els.pagesPanel.hidden));
-thumbs.addEventListener("selection", syncPageTools);
-thumbs.addEventListener("go", (e) => view.goToPage(e.detail.page + 1));
-thumbs.addEventListener("delete", () => els.delPagesBtn.click());
-view.addEventListener("page", (e) => thumbs.setCurrent(e.detail.page - 1));
 
 els.rotLeftBtn.addEventListener("click", () => {
-  const sel = thumbs.selection();
-  applyPageChange("rotate pages", (bytes) => rotatePages(bytes, sel, -90)).then(() => thumbs.selectPages(sel));
+  const tab = active;
+  const sel = tab.thumbs.selection();
+  applyPageChange(tab, "rotate pages", (bytes) => rotatePages(bytes, sel, -90)).then(() => tab.thumbs.selectPages(sel));
 });
 els.rotRightBtn.addEventListener("click", () => {
-  const sel = thumbs.selection();
-  applyPageChange("rotate pages", (bytes) => rotatePages(bytes, sel, 90)).then(() => thumbs.selectPages(sel));
+  const tab = active;
+  const sel = tab.thumbs.selection();
+  applyPageChange(tab, "rotate pages", (bytes) => rotatePages(bytes, sel, 90)).then(() => tab.thumbs.selectPages(sel));
 });
 els.delPagesBtn.addEventListener("click", async () => {
-  const sel = thumbs.selection();
+  const tab = active;
+  const sel = tab?.thumbs.selection() ?? [];
   if (!sel.length) return;
-  if (sel.length >= state.doc.pageCount) {
+  if (sel.length >= tab.doc.pageCount) {
     toast("A document needs at least one page.", 4000);
     return;
   }
-  await applyPageChange("delete pages", (bytes) => deletePages(bytes, sel));
-});
-thumbs.addEventListener("reorder", async (e) => {
-  const { order, moved } = e.detail;
-  const done = await applyPageChange("reorder pages", (bytes) => reorderPages(bytes, order));
-  if (done) thumbs.selectPages(moved.map((old) => order.indexOf(old)).sort((a, b) => a - b));
+  await applyPageChange(tab, "delete pages", (bytes) => deletePages(bytes, sel));
 });
 
 els.insertPagesBtn.addEventListener("click", () => els.insertInput.click());
 els.insertInput.addEventListener("change", async () => {
   const file = els.insertInput.files[0];
   els.insertInput.value = "";
-  if (!file || !state.doc) return;
+  const tab = active;
+  if (!file || !tab) return;
   let other;
   try {
     other = await openDocument(new Uint8Array(await file.arrayBuffer()));
@@ -401,50 +695,51 @@ els.insertInput.addEventListener("change", async () => {
     return;
   }
   const indices = parsePageRange(answer, other.pageCount);
-  const sel = thumbs.selection();
-  const at = (sel.length ? sel[sel.length - 1] : view.pageNumber - 1) + 1;
-  const done = await applyPageChange("insert pages", async () => {
-    await call(engine().importPages(state.doc, other, indices, at));
-    return new Uint8Array(await call(engine().saveAsCopy(state.doc)));
+  const sel = tab.thumbs.selection();
+  const at = (sel.length ? sel[sel.length - 1] : tab.view.pageNumber - 1) + 1;
+  const done = await applyPageChange(tab, "insert pages", async () => {
+    await call(engine().importPages(tab.doc, other, indices, at));
+    return new Uint8Array(await call(engine().saveAsCopy(tab.doc)));
   });
   closeDocument(other);
-  if (done) thumbs.selectPages(indices.map((_, k) => at + k));
+  if (done) tab.thumbs.selectPages(indices.map((_, k) => at + k));
 });
 
 els.extractPagesBtn.addEventListener("click", async () => {
-  const sel = thumbs.selection();
-  if (!sel.length || !state.doc) return;
+  const tab = active;
+  const sel = tab?.thumbs.selection() ?? [];
+  if (!sel.length) return;
   try {
     toast("Preparing pages…", 0);
-    const buffer = await call(engine().extractPages(state.doc, sel));
-    const name = sel.length === 1 ? `${base()}-page-${sel[0] + 1}.pdf` : `${base()}-pages.pdf`;
+    const buffer = await call(engine().extractPages(tab.doc, sel));
+    const name = sel.length === 1 ? `${baseName(tab)}-page-${sel[0] + 1}.pdf` : `${baseName(tab)}-pages.pdf`;
     await exportBlob(new Blob([buffer], { type: "application/pdf" }), name);
     toast(`Saved ${sel.length} page${sel.length === 1 ? "" : "s"} as a new file`);
   } catch (err) {
-    if (err?.name === "AbortError") els.toast.hidden = true;
+    if (err?.name === "AbortError") toast("", 1);
     else toast(`Could not save the pages: ${err.message}`, 6000);
   }
 });
 
 // ----------------------------------------------------------------- comments
 
-let commentsTimer = 0;
-function refreshComments() {
-  clearTimeout(commentsTimer);
-  commentsTimer = setTimeout(() => state.doc && loadComments(openToken, { quiet: true }), 150);
+function refreshComments(tab) {
+  clearTimeout(tab.commentsTimer);
+  tab.commentsTimer = setTimeout(() => tabs.includes(tab) && loadComments(tab, { quiet: true }), 150);
 }
 
-async function loadComments(token, { quiet = false } = {}) {
-  if (!quiet) renderCommentsMessage("Reading comments…");
+async function loadComments(tab, { quiet = false } = {}) {
+  const token = ++tab.commentsToken;
+  if (!quiet && tab === active) renderCommentsMessage("Reading comments…");
   try {
-    const threads = await readComments(state.doc);
-    if (token !== openToken) return;
-    renderComments(threads);
+    const threads = await readComments(tab.doc);
+    if (token !== tab.commentsToken || !tabs.includes(tab)) return;
+    tab.threads = threads;
+    if (tab === active) renderComments(tab, threads);
   } catch (err) {
-    if (token === openToken) {
-      renderCommentsMessage(`Could not read comments: ${err.message}`);
-      els.commentCount.textContent = "!";
-    }
+    if (token !== tab.commentsToken || tab !== active) return;
+    renderCommentsMessage(`Could not read comments: ${err.message}`);
+    els.commentCount.textContent = "!";
   }
 }
 
@@ -478,7 +773,7 @@ function actionButton(label, onClick) {
   return b;
 }
 
-function commentNode(comment, isReply) {
+function commentNode(tab, comment, isReply) {
   const author = comment.author || "Unknown author";
   const box = el("div", isReply ? "comment reply" : "comment");
   const avatar = el("div", "avatar", author.trim().charAt(0).toUpperCase() || "?");
@@ -492,7 +787,7 @@ function commentNode(comment, isReply) {
 
   const actions = el("div", "comment-actions");
   actions.append(
-    actionButton("Reply", () => openReplyBox(body, comment)),
+    actionButton("Reply", () => openReplyBox(tab, body, comment)),
     actionButton("Edit", (e) => {
       const r = e.currentTarget.getBoundingClientRect();
       openPopover({
@@ -501,13 +796,13 @@ function commentNode(comment, isReply) {
         value: comment.text,
         submitText: "Save",
         onSubmit: (value) => {
-          if (value.trim() && value !== comment.text) editor.editComment(comment, value).catch((err) => toast(`Could not edit: ${err.message}`, 5000));
+          if (value.trim() && value !== comment.text) tab.editor.editComment(comment, value).catch((err) => toast(`Could not edit: ${err.message}`, 5000));
         },
       });
     }),
     actionButton("Delete", async () => {
       const ok = await askConfirm({ title: "Delete this comment?", message: "The comment and any replies to it are removed from the document.", okText: "Delete" });
-      if (ok) editor.deleteComment(comment).catch((err) => toast(`Could not delete: ${err.message}`, 5000));
+      if (ok) tab.editor.deleteComment(comment).catch((err) => toast(`Could not delete: ${err.message}`, 5000));
     })
   );
   body.append(meta, text, actions);
@@ -515,7 +810,7 @@ function commentNode(comment, isReply) {
   return box;
 }
 
-function openReplyBox(container, comment) {
+function openReplyBox(tab, container, comment) {
   const existing = container.querySelector(".reply-box");
   if (existing) {
     existing.querySelector("textarea").focus();
@@ -539,7 +834,7 @@ function openReplyBox(container, comment) {
     if (!value) return;
     post.disabled = true;
     try {
-      await editor.reply(comment, value);
+      await tab.editor.reply(comment, value);
     } catch (err) {
       toast(`Could not reply: ${err.message}`, 5000);
       post.disabled = false;
@@ -557,7 +852,7 @@ function openReplyBox(container, comment) {
 }
 
 // Comment text comes from the PDF file, so it is always inserted as text, never as HTML.
-function renderComments(threads) {
+function renderComments(tab, threads) {
   const total = threads.reduce((sum, t) => sum + 1 + t.replies.length, 0);
   els.commentCount.textContent = String(total);
   if (threads.length === 0) {
@@ -569,11 +864,11 @@ function renderComments(threads) {
     const pageButton = el("button", "thread-page", `Page ${thread.page}`);
     pageButton.type = "button";
     pageButton.addEventListener("click", () => {
-      view.goToPage(thread.page);
-      if (thread.annotation?.rect) view.revealRect(thread.pageIndex, fromEngineRect(thread.annotation.rect));
+      tab.view.goToPage(thread.page);
+      if (thread.annotation?.rect) tab.view.revealRect(thread.pageIndex, fromEngineRect(thread.annotation.rect));
     });
-    card.append(pageButton, commentNode(thread, false));
-    for (const reply of thread.replies) card.append(commentNode(reply, true));
+    card.append(pageButton, commentNode(tab, thread, false));
+    for (const reply of thread.replies) card.append(commentNode(tab, reply, true));
     return card;
   });
   els.commentList.replaceChildren(...nodes);
@@ -585,88 +880,71 @@ function setCommentsOpen(open) {
   if (open) els.closeComments.focus();
 }
 
-// ------------------------------------------------------------ editor events
+// ---------------------------------------------------------------- toolbar in
 
-view.addEventListener("formchange", (e) => {
-  editor.markDirty();
-  thumbs.refreshPage(e.detail.page);
-});
-view.addEventListener("formerror", (e) => toast(`Could not fill in that field: ${e.detail.message}`, 5000));
-editor.addEventListener("change", syncEditState);
-editor.addEventListener("edited", (e) => {
-  refreshComments();
-  if (e.detail?.page !== undefined) thumbs.refreshPage(e.detail.page);
-});
-editor.addEventListener("error", (e) => toast(e.detail.message, 6000));
-els.undoBtn.addEventListener("click", () => editor.undo());
-els.redoBtn.addEventListener("click", () => editor.redo());
+els.undoBtn.addEventListener("click", () => active?.editor.undo());
+els.redoBtn.addEventListener("click", () => active?.editor.redo());
 els.saveBtn.addEventListener("click", () => saveDocument());
-els.saveAsBtn.addEventListener("click", () => saveDocument({ copy: true }));
-els.printBtn.addEventListener("click", printDocument);
+els.saveAsBtn.addEventListener("click", () => saveDocument(active, { copy: true }));
+els.printBtn.addEventListener("click", () => printDocument());
+
+for (const btn of els.rail.querySelectorAll("[data-tool]")) {
+  btn.addEventListener("click", () => active?.editor.setTool(btn.dataset.tool));
+}
 
 window.addEventListener("beforeunload", (e) => {
-  if (!editor.dirty) return;
+  if (!tabs.some((t) => t.editor.dirty)) return;
   e.preventDefault();
   e.returnValue = "";
 });
 
-// ------------------------------------------------------------ view -> toolbar
-
-view.addEventListener("page", (e) => {
-  els.pageInput.value = e.detail.page;
-});
-view.addEventListener("zoom", () => {
-  els.zoomLabel.textContent = `${Math.round(view.zoom * 100)}%`;
-});
-view.addEventListener("ready", () => {
-  els.zoomLabel.textContent = `${Math.round(view.zoom * 100)}%`;
-});
-view.addEventListener("find", (e) => {
-  const { total, index, query } = e.detail;
-  if (!els.findInput.value) els.findCount.textContent = "";
-  else if (total === 0) els.findCount.textContent = query !== undefined ? "No matches" : "";
-  else els.findCount.textContent = index >= 0 ? `${index + 1} of ${total}` : `${total} matches`;
-});
-
-// ---------------------------------------------------------------- toolbar in
-
-els.openBtn.addEventListener("click", chooseFile);
+els.openBtn.addEventListener("click", chooseFiles);
 els.fileInput.addEventListener("change", () => {
-  const file = els.fileInput.files[0];
+  const files = [...els.fileInput.files];
   els.fileInput.value = "";
-  if (file) openFile(file);
+  openMany(files.map((file) => ({ file, handle: null })));
 });
 
-const goToPage = (n) => state.doc && view.goToPage(Math.min(Math.max(1, n), state.doc.pageCount));
-els.prevBtn.addEventListener("click", () => goToPage(view.pageNumber - 1));
-els.nextBtn.addEventListener("click", () => goToPage(view.pageNumber + 1));
+const goToPage = (n) => active && active.view.goToPage(Math.min(Math.max(1, n), active.doc.pageCount));
+els.prevBtn.addEventListener("click", () => active && goToPage(active.view.pageNumber - 1));
+els.nextBtn.addEventListener("click", () => active && goToPage(active.view.pageNumber + 1));
 els.pageInput.addEventListener("change", () => goToPage(Number(els.pageInput.value)));
 
-els.zoomInBtn.addEventListener("click", () => view.zoomBy(1.2));
-els.zoomOutBtn.addEventListener("click", () => view.zoomBy(1 / 1.2));
-els.fitWidthBtn.addEventListener("click", () => view.fitWidth());
+els.zoomInBtn.addEventListener("click", () => active?.view.zoomBy(1.2));
+els.zoomOutBtn.addEventListener("click", () => active?.view.zoomBy(1 / 1.2));
+els.fitWidthBtn.addEventListener("click", () => active?.view.fitWidth());
 
 let findTimer = 0;
-const runFind = () => view.find(els.findInput.value).catch((err) => console.error("Search failed", err));
+const runFind = () => {
+  const tab = active;
+  if (!tab) return;
+  tab.findQuery = els.findInput.value;
+  tab.view.find(tab.findQuery).catch((err) => console.error("Search failed", err));
+};
 els.findInput.addEventListener("input", () => {
   clearTimeout(findTimer);
   findTimer = setTimeout(runFind, 180);
 });
 els.findInput.addEventListener("keydown", (e) => {
+  const tab = active;
   if (e.key === "Enter") {
     e.preventDefault();
     clearTimeout(findTimer);
-    if (view.hits.length && view.findQuery === els.findInput.value) view.findStep(e.shiftKey ? -1 : 1);
+    if (tab?.view.hits.length && tab.view.findQuery === els.findInput.value) tab.view.findStep(e.shiftKey ? -1 : 1);
     else runFind();
   } else if (e.key === "Escape") {
     els.findInput.value = "";
-    view.clearFind();
+    if (tab) {
+      tab.findQuery = "";
+      tab.findCount = "";
+      tab.view.clearFind();
+      tab.pane.focus({ preventScroll: true });
+    }
     els.findCount.textContent = "";
-    els.container.focus({ preventScroll: true });
   }
 });
-els.findNextBtn.addEventListener("click", () => view.findStep(1));
-els.findPrevBtn.addEventListener("click", () => view.findStep(-1));
+els.findNextBtn.addEventListener("click", () => active?.view.findStep(1));
+els.findPrevBtn.addEventListener("click", () => active?.view.findStep(-1));
 
 els.commentsBtn.addEventListener("click", () => setCommentsOpen(els.commentsPanel.hidden));
 els.closeComments.addEventListener("click", () => setCommentsOpen(false));
@@ -675,12 +953,34 @@ window.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
   const key = e.key.toLowerCase();
   const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+  const dialogOpen = !!document.querySelector("dialog[open]");
+  if (dialogOpen && !(mod && key === "k")) return;
   if (mod && key === "o") {
     e.preventDefault();
-    chooseFile();
+    chooseFiles();
+  } else if (mod && key === "k") {
+    e.preventDefault();
+    if (!dialogOpen) openTabSwitcher();
+  } else if (mod && key === "tab") {
+    e.preventDefault();
+    stepTab(e.shiftKey ? -1 : 1);
+  } else if ((mod && (key === "pagedown" || key === "pageup")) || (e.altKey && (key === "pagedown" || key === "pageup"))) {
+    e.preventDefault();
+    stepTab(key === "pagedown" ? 1 : -1);
+  } else if ((e.altKey || mod) && /^[1-9]$/.test(key)) {
+    // Alt+1 to Alt+8 jump to that tab, Alt+9 to the last one.
+    e.preventDefault();
+    const target = key === "9" ? tabs[tabs.length - 1] : tabs[Number(key) - 1];
+    if (target) activateTab(target);
+  } else if (mod && key === "w") {
+    // Edge may keep Ctrl+W for itself; where the page does receive it, close just this tab.
+    if (active) {
+      e.preventDefault();
+      closeTab(active);
+    }
   } else if (mod && key === "s") {
     e.preventDefault();
-    if (state.doc) saveDocument({ copy: e.shiftKey });
+    if (active) saveDocument(active, { copy: e.shiftKey });
   } else if (mod && key === "p") {
     e.preventDefault();
     printDocument();
@@ -690,27 +990,29 @@ window.addEventListener("keydown", (e) => {
       els.findInput.focus();
       els.findInput.select();
     }
-  } else if (mod && key === "a" && !typing && state.doc) {
+  } else if (mod && key === "a" && !typing && active) {
     e.preventDefault();
-    view.selectAll();
-  } else if (mod && (key === "=" || key === "+") && state.doc) {
+    active.view.selectAll();
+  } else if (mod && (key === "=" || key === "+") && active) {
     e.preventDefault();
-    view.zoomBy(1.2);
-  } else if (mod && key === "-" && state.doc) {
+    active.view.zoomBy(1.2);
+  } else if (mod && key === "-" && active) {
     e.preventDefault();
-    view.zoomBy(1 / 1.2);
-  } else if (mod && key === "0" && state.doc) {
+    active.view.zoomBy(1 / 1.2);
+  } else if (mod && key === "0" && active) {
     e.preventDefault();
-    view.fitWidth();
+    active.view.fitWidth();
   } else if (key === "escape" && !typing) {
-    view.clearSelection();
+    closeMenu();
+    active?.view.clearSelection();
   }
 });
 
-// Drag and drop onto the window.
+// Drag and drop onto the window: every PDF dropped opens in its own tab.
 let dragDepth = 0;
 const isPdf = (file) => file && (file.type === "application/pdf" || /\.pdf$/i.test(file.name));
 window.addEventListener("dragenter", (e) => {
+  if (e.dataTransfer?.types?.includes("Files") === false) return;
   e.preventDefault();
   dragDepth++;
   els.dropHint.hidden = false;
@@ -724,27 +1026,34 @@ window.addEventListener("drop", async (e) => {
   e.preventDefault();
   dragDepth = 0;
   els.dropHint.hidden = true;
-  const item = e.dataTransfer.items?.[0];
-  const file = e.dataTransfer.files[0];
-  if (!isPdf(file)) {
-    toast("That file is not a PDF.");
+  // File handles must be requested while the event is still being handled.
+  const dropped = [...(e.dataTransfer.items ?? [])]
+    .filter((item) => item.kind === "file")
+    .map((item) => ({ file: item.getAsFile(), handle: item.getAsFileSystemHandle?.() ?? null }));
+  const entries = [];
+  for (const d of dropped) {
+    if (!isPdf(d.file)) continue;
+    let handle = null;
+    try {
+      handle = d.handle ? await d.handle : null;
+    } catch {
+      handle = null;
+    }
+    entries.push({ file: d.file, handle });
+  }
+  if (!entries.length) {
+    toast("That is not a PDF.");
     return;
   }
-  let handle = null;
-  try {
-    handle = (await item?.getAsFileSystemHandle?.()) ?? null;
-  } catch {
-    handle = null;
-  }
-  openFile(file, handle);
+  openMany(entries);
 });
 
-// Set when Windows opens a PDF with this installed app (file_handlers in the manifest).
+// Set when Windows opens PDFs with this installed app (file_handlers in the manifest). Several files open as several tabs.
 if ("launchQueue" in window) {
   launchQueue.setConsumer(async (params) => {
-    const handle = params.files?.[0];
-    if (!handle) return;
-    openFile(await handle.getFile(), handle);
+    const handles = params.files ?? [];
+    if (!handles.length) return;
+    openMany(await Promise.all(handles.map(async (handle) => ({ file: await handle.getFile(), handle }))));
   });
 }
 
@@ -754,8 +1063,18 @@ if ("serviceWorker" in navigator) {
 
 // Start the engine now so the first file opens quickly.
 engine();
-setControlsEnabled(false);
-showMessage("Open a PDF to start, or drag one into this window.");
+syncAll();
 
 // For tests and debugging.
-window.__lite = { view, state, editor };
+window.__lite = {
+  tabs,
+  get view() {
+    return active?.view;
+  },
+  get editor() {
+    return active?.editor;
+  },
+  get state() {
+    return { doc: active?.doc ?? null, name: active?.name ?? "", handle: active?.handle ?? null };
+  },
+};

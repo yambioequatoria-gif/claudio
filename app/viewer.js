@@ -26,6 +26,7 @@ export class PdfView extends EventTarget {
   constructor(container) {
     super();
     this.container = container;
+    this.active = true; // a view in a background tab stops drawing and releases its page bitmaps
     this.pagesEl = document.createElement("div");
     this.pagesEl.className = "pages";
     this.container.append(this.pagesEl);
@@ -51,6 +52,7 @@ export class PdfView extends EventTarget {
 
     this.container.addEventListener("scroll", () => this.#schedule(), { passive: true });
     new ResizeObserver(() => {
+      if (!this.active || this.container.clientWidth === 0) return;
       if (this.fitMode) this.#applyFit();
       this.#schedule();
     }).observe(this.container);
@@ -296,8 +298,20 @@ export class PdfView extends EventTarget {
     });
   }
 
+  /** Called when this view's tab is shown or hidden. A hidden view frees its bitmaps and stops rendering. */
+  setActive(on) {
+    this.active = on;
+    if (on) {
+      if (this.fitMode) this.#applyFit();
+      this.#schedule();
+      return;
+    }
+    this.renderQueue = [];
+    for (const p of this.pages) if (p.canvas) this.#releaseBitmap(p);
+  }
+
   #update() {
-    if (!this.doc || !this.pages.length) return;
+    if (!this.active || !this.doc || !this.pages.length) return;
     const { tops, heights } = this.layout;
     const c = this.container;
     const viewTop = c.scrollTop;
@@ -354,6 +368,8 @@ export class PdfView extends EventTarget {
         engine().renderPageRaw(this.doc, p.pageObj, { scaleFactor: scale, dpr: 1, withAnnotations: true, withForms: true })
       );
       if (generation !== this.generation) return;
+      // The tab may have been hidden while this page was rendering; do not keep a bitmap for a background tab.
+      if (!this.active) return;
       if (!p.canvas) {
         p.canvas = document.createElement("canvas");
         p.canvas.className = "bitmap";
@@ -782,6 +798,7 @@ export class PdfView extends EventTarget {
   }
 
   #onCopy(e) {
+    if (!this.active) return;
     const active = document.activeElement;
     const inField = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active?.isContentEditable;
     if (!this.hasSelection() || inField) return;
