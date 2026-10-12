@@ -1,8 +1,8 @@
 # Lite PDF
 
-A local PDF viewer, built to replace Adobe Acrobat for everyday reading. Editing (text boxes, highlights, page delete, rotate, merge, split) comes next.
+A local PDF viewer and editor for everyday work: read, search, select and copy text, follow links, add comments and markup, change pages, save and print. A replacement for Acrobat for those jobs.
 
-Files are opened and rendered in the browser on your computer. They are not uploaded anywhere.
+Files are opened and edited in the browser on your computer. They are not uploaded anywhere.
 
 ## Set up (Windows, once)
 
@@ -12,22 +12,42 @@ Files are opened and rendered in the browser on your computer. They are not uplo
 
 After that, clicking a PDF just opens it. You don't need to run anything else.
 
-To check the server is running, open http://localhost:8080 in Edge. To run it in a visible window for troubleshooting, double-click `run.bat`. To stop the background server, end the `powershell` process in Task Manager, or sign out and back in after removing "Lite PDF server" from the Startup folder (`shell:startup`).
+To update, pull the latest version in GitHub Desktop and press Ctrl+R in the app. The server reads files from disk, so nothing needs restarting. If a new version doesn't appear, close and reopen the app window.
 
-## Comments
+To check the server is running, open http://localhost:8080 in Edge. To run it in a visible window for troubleshooting, double-click `run.bat`. Server errors are written to `%LOCALAPPDATA%\LitePDF\server.log`.
 
-The Comments button lists every comment in the file, including sticky notes, highlight and text-box comments, and their replies, whether they were made in Acrobat, Foxit, Preview or this app. Click a page label to jump to it. Comments are read-only for now; replying comes with the editing work.
+## What it does
 
-## Use
+Reading: smooth scrolling and zoom (Ctrl+wheel, Ctrl and plus or minus, Ctrl+0 for fit width), page navigation, search, text selection by drag, double-click (word), triple-click (line) and Ctrl+A, copy, and clickable links. Plain-text web and email addresses are linked as well. Large files stay responsive because only pages near the screen are drawn.
 
-Open with Ctrl+O, the Open button, or drag a PDF into the window. Page navigation is in the toolbar. Zoom with + and −, or Fit width. Find with Ctrl+F; Enter goes to the next match, Shift+Enter to the previous.
+Comments: the Comments panel lists every comment in the file, including sticky notes, highlight and text-box comments and their threaded replies, from any PDF app. You can reply, edit and delete from the panel.
 
-Large files stay responsive because only pages near the screen are drawn.
+Editing: the rail on the left has Select, Highlight, Underline, Strike through, Comment, Add text, Draw, Rectangle, Cover and Redact. Single-key shortcuts: V, H, U, S, N, T, D, R. Select an annotation to move it, double-click to edit its text, press Delete to remove it. Undo and redo are Ctrl+Z and Ctrl+Y.
 
-## Layout
+Cover hides what is under it but leaves the content in the file. Redact deletes the text under the box from the file and draws a black box; it cannot be undone.
 
-`index.html`, `app.js`, `app.css` are the app. `serve.ps1` is the local server, `setup.ps1` registers it at sign-in, and the `.bat` files are double-click wrappers for them. `polyfills.js` patches a method older browsers lack. `sw.js` lets the app load offline once it has been opened. `manifest.webmanifest` declares PDF file handling. `vendor/pdfjs/` is pdf.js 6.3.289, Apache-2.0 licensed (see `vendor/pdfjs/LICENSE`), copied in so nothing is loaded from a CDN. `vendor/pdf-lib/` is pdf-lib 1.17.1 (MIT), used to read comments and, later, to edit files. `comments.js` reads annotations.
+Pages: the Pages panel shows thumbnails. Select pages (click, Shift-click, Ctrl-click) to rotate, delete or extract them as a new file, drag them to reorder, or insert pages from another PDF. Page changes are undoable.
+
+Saving: Ctrl+S saves back to the file it was opened from (Edge asks for permission the first time). Ctrl+Shift+S saves a copy. Ctrl+P prints, with an optional page range.
+
+Not done yet: filling in form fields, signing, and page changes on password-protected files. Opening a password-protected file works.
+
+## How it is built
+
+No build step and no network access at run time. `index.html`, `app.css` and the `.js` files next to it are the app:
+
+`engine.js` wraps the PDF engine. `viewer.js` lays out and renders pages and handles selection, links and search. `pagedata.js` holds the text geometry: lines of glyph boxes, hit-testing, selection rectangles, auto-detected links, and the correction that snaps a link's area to the text it covers. `editor.js` has the editing tools and undo. `comments.js` builds comment threads. `thumbs.js` and `pageops.js` are the Pages panel and page changes. `print.js` renders pages for printing. `main.js` wires it together.
+
+`sw.js` lets the app load offline once opened. `manifest.webmanifest` declares PDF file handling. `serve.ps1` is the local server, `setup.ps1` registers it at sign-in, and the `.bat` files are double-click wrappers.
+
+`vendor/embedpdf/` is PDFium, the engine used by Chrome and Edge, compiled to WebAssembly by the EmbedPDF project (MIT; PDFium is BSD-3 and Apache-2.0, see the licence files there). `vendor/pdf-lib/` is pdf-lib 1.17.1 (MIT), used for rotating, deleting and reordering pages.
+
+## Why not pdf.js
+
+An earlier version used pdf.js. It places selection and link boxes from a substitute browser font, so inside a line they drift from the real glyphs. PDFium reports the exact box of every glyph, and selection, search highlights and links are now drawn from those, which is why they line up at every zoom level.
 
 ## Status
 
-Tested in headless Chromium: opening a 20-page and a 400-page PDF, page jumps, zoom, find, a file-replace, and reading threaded comments from a file with sticky notes, replies and a highlight. The server script was run under PowerShell 7 on Linux. Not yet tested on Windows or in Edge: `setup.bat`, Windows PowerShell 5, installing the app, opening a PDF from Explorer, and password-protected PDFs.
+Tested in headless Chromium against five real PDFs and synthetic ones (rotated pages, embedded fonts, 400 pages): rendering, selection, links, search, comments, every editing tool, save and reopen, print rendering, and page changes. Alignment was measured on every page: rendered text sits within about one pixel of the engine's text boxes.
+
+Not yet tested on Windows or in Edge: `setup.bat`, installing the app, opening a PDF from Explorer, saving in place through Edge's file permission, and the real print dialog.

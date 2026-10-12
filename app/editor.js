@@ -93,13 +93,29 @@ export class Editor extends EventTarget {
 
   // ---------------------------------------------------------------- document
 
-  attach(doc) {
+  attach(doc, { keepDirty = false, keepHistory = false } = {}) {
     this.doc = doc;
-    this.history = { undo: [], redo: [] };
-    this.dirty = false;
+    if (!keepHistory) this.history = { undo: [], redo: [] };
+    if (!keepDirty) this.dirty = false;
     this.selected = null;
     closePopover();
     this.#emitChange();
+  }
+
+  /**
+   * Records a change to the page list (rotate, delete, reorder, insert). Earlier steps refer to the old pages, so
+   * they are dropped. `before` and `after` are the file's bytes, or null when the file is too large to keep.
+   */
+  recordPageChange(label, before, after, reload) {
+    this.history = { undo: [], redo: [] };
+    if (before && after) {
+      this.history.undo.push({
+        label,
+        undo: () => reload(before),
+        redo: () => reload(after),
+      });
+    }
+    this.markDirty();
   }
 
   markClean() {

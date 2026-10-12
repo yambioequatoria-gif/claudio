@@ -80,6 +80,7 @@ button, input { font: inherit; color: inherit; }
   z-index: 2;
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 14px;
   min-height: 56px;
   padding: 0 16px;
@@ -109,7 +110,7 @@ button, input { font: inherit; color: inherit; }
 .tools {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px 10px;
   flex: 1;
   min-width: 0;
@@ -218,7 +219,7 @@ input:disabled { opacity: 0.4; cursor: default; }
 .find { gap: 2px; padding-left: 10px; }
 .find:focus-within { border-color: var(--accent); }
 .find input {
-  width: 160px;
+  width: 150px;
   height: 28px;
   border: 0;
   background: transparent;
@@ -232,6 +233,30 @@ input:disabled { opacity: 0.4; cursor: default; }
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* Narrower windows: keep one row by shortening labels, then dropping them. */
+@media (max-width: 1500px) {
+  .brand { max-width: 150px; }
+  .find input { width: 130px; }
+  .find-count { min-width: 56px; }
+}
+@media (max-width: 1320px) {
+  .brand { max-width: 120px; }
+  .btn-label { display: none; }
+  #commentsBtn .btn-label { display: none; }
+  .tools { gap: 6px; }
+  .find input { width: 110px; }
+}
+@media (max-width: 1080px) {
+  .doc-name { display: none; }
+  .brand { max-width: none; }
+  .find input { width: 90px; }
+  .zoom-label { min-width: 40px; }
+}
+@media (max-width: 900px) {
+  .bar { flex-wrap: wrap; }
+  .tools { flex-wrap: wrap; }
 }
 
 /* Workspace */
@@ -441,6 +466,51 @@ input:disabled { opacity: 0.4; cursor: default; }
 .tool .icon { width: 18px; height: 18px; }
 .tool .icon .fillish { fill: color-mix(in srgb, currentColor 18%, transparent); }
 .tool .icon .solid { fill: currentColor; }
+
+/* Pages panel */
+.pages-panel {
+  flex: none;
+  width: 188px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+.pages-panel[hidden] { display: none; }
+.pages-head { padding: 10px 8px 8px; border-bottom: 1px solid var(--line); }
+.pages-head h2 { margin: 0 0 6px 6px; font-size: 13px; font-weight: 600; }
+.page-tools { display: flex; gap: 2px; }
+.thumbs { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.thumb {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 6px 4px;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  outline: none;
+}
+.thumb:hover { background: var(--hover); }
+.thumb.current { border-color: var(--line-strong); }
+.thumb.selected { background: var(--accent-soft); border-color: var(--accent); }
+.thumb:focus-visible { box-shadow: 0 0 0 2px var(--focus); }
+.thumb-frame { width: 132px; background: #fff; box-shadow: var(--shadow-page); position: relative; }
+.thumb-frame canvas { display: block; width: 100%; height: 100%; }
+.thumb-num { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.thumb.drop-before::before, .thumb.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.thumb.drop-before::before { top: -7px; }
+.thumb.drop-after::after { bottom: -7px; }
 
 /* Options for the active tool */
 .tool-options {

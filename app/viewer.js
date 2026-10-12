@@ -64,7 +64,8 @@ export class PdfView extends EventTarget {
 
   // ---------------------------------------------------------------- document
 
-  async setDocument(doc) {
+  async setDocument(doc, { keepView = false } = {}) {
+    const kept = keepView ? { zoom: this.zoom, fit: this.fitMode, scroll: this.container.scrollTop } : null;
     this.generation++;
     this.doc = doc;
     this.pages = [];
@@ -102,9 +103,19 @@ export class PdfView extends EventTarget {
         dataPromise: null,
       });
     }
-    this.fitMode = "width";
-    this.#applyFit();
-    this.container.scrollTop = 0;
+    if (kept) {
+      this.fitMode = kept.fit;
+      if (kept.fit) this.#applyFit();
+      else {
+        this.zoom = kept.zoom;
+        this.#relayout();
+      }
+      this.container.scrollTop = kept.scroll;
+    } else {
+      this.fitMode = "width";
+      this.#applyFit();
+      this.container.scrollTop = 0;
+    }
     this.#schedule();
     this.#emit("ready", { pageCount: doc.pageCount });
   }

@@ -5,6 +5,8 @@ import { readComments } from "./comments.js";
 import { askText, askConfirm } from "./dialog.js";
 import { openPopover } from "./popover.js";
 import { parsePageRange, printPages } from "./print.js";
+import { Thumbnails } from "./thumbs.js";
+import { rotatePages, deletePages, reorderPages } from "./pageops.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -40,18 +42,29 @@ const els = {
   commentList: $("commentList"),
   rail: $("rail"),
   toolOptions: $("toolOptions"),
+  pagesBtn: $("pagesBtn"),
+  pagesPanel: $("pagesPanel"),
+  thumbs: $("thumbs"),
+  rotLeftBtn: $("rotLeftBtn"),
+  rotRightBtn: $("rotRightBtn"),
+  delPagesBtn: $("delPagesBtn"),
+  insertPagesBtn: $("insertPagesBtn"),
+  extractPagesBtn: $("extractPagesBtn"),
+  insertInput: $("insertInput"),
 };
 
 const view = new PdfView(els.container);
 const editor = new Editor({ view, optionsEl: els.toolOptions, railEl: els.rail });
+const thumbs = new Thumbnails(els.thumbs);
 const state = { doc: null, name: "", handle: null };
 let openToken = 0;
 
 const controls = [
   els.prevBtn, els.nextBtn, els.pageInput, els.zoomOutBtn, els.zoomInBtn,
   els.fitWidthBtn, els.findInput, els.findPrevBtn, els.findNextBtn, els.commentsBtn,
-  els.saveAsBtn, els.printBtn, ...els.rail.querySelectorAll("[data-tool]"),
+  els.saveAsBtn, els.printBtn, els.pagesBtn, els.insertPagesBtn, ...els.rail.querySelectorAll("[data-tool]"),
 ];
+const selectionTools = [els.rotLeftBtn, els.rotRightBtn, els.delPagesBtn, els.extractPagesBtn];
 
 function setControlsEnabled(enabled) {
   for (const el of controls) el.disabled = !enabled;
@@ -59,9 +72,16 @@ function setControlsEnabled(enabled) {
     els.saveBtn.disabled = true;
     els.undoBtn.disabled = true;
     els.redoBtn.disabled = true;
+    for (const b of selectionTools) b.disabled = true;
   } else {
     syncEditState();
+    syncPageTools();
   }
+}
+
+function syncPageTools() {
+  const has = state.doc && thumbs.selection().length > 0;
+  for (const b of selectionTools) b.disabled = !has;
 }
 
 function showMessage(text) {
@@ -131,6 +151,7 @@ async function openBytes(bytes, name, handle = null) {
     state.handle = handle;
     editor.attach(doc);
     await view.setDocument(doc);
+    thumbs.setDocument(doc);
     if (previous) closeDocument(previous);
 
     els.docName.textContent = name;
@@ -253,6 +274,154 @@ async function printDocument() {
     toast(`Could not print: ${err.message}`, 6000);
   }
 }
+
+// --------------------------------------------------------------- page changes
+
+const MAX_SNAPSHOT = 120 * 1024 * 1024;
+
+/** Replaces the open document with new file bytes, keeping the reader's zoom and place. */
+async function reloadDocument(bytes, { keepHistory = true } = {}) {
+  const token = ++openToken;
+  const doc = await openDocument(new Uint8Array(bytes));
+  const previous = state.doc;
+  state.doc = doc;
+  editor.attach(doc, { keepDirty: true, keepHistory });
+  await view.setDocument(doc, { keepView: true });
+  thumbs.setDocument(doc);
+  if (previous) closeDocument(previous);
+  els.pageCount.textContent = `of ${doc.pageCount}`;
+  els.pageInput.max = doc.pageCount;
+  editor.markDirty();
+  syncPageTools();
+  loadComments(token, { quiet: true });
+}
+
+/** Runs a change to the page list: snapshot, transform the bytes, reload, and record one undo step. */
+async function applyPageChange(label, transform) {
+  if (!state.doc) return null;
+  if (state.doc.isEncrypted) {
+    toast("Page changes are not available for password-protected files yet.", 6000);
+    return null;
+  }
+  try {
+    toast("Updating pages…", 0);
+    const before = new Uint8Array(await call(engine().saveAsCopy(state.doc)));
+    let after;
+    try {
+      after = await transform(before);
+    } catch (err) {
+      // A failed change must not leave the open document half changed.
+      await reloadDocument(before);
+      throw err;
+    }
+    await reloadDocument(after, { keepHistory: false });
+    const big = before.byteLength > MAX_SNAPSHOT || after.byteLength > MAX_SNAPSHOT;
+    editor.recordPageChange(label, big ? null : before, big ? null : after, (bytes) => reloadDocument(bytes));
+    els.toast.hidden = true;
+    if (big) toast("This file is large, so that change cannot be undone.", 5000);
+    return true;
+  } catch (err) {
+    toast(`Could not ${label}: ${err.message}`, 7000);
+    return null;
+  }
+}
+
+function setPagesOpen(open) {
+  els.pagesPanel.hidden = !open;
+  els.pagesBtn.setAttribute("aria-pressed", String(open));
+}
+
+const base = () => state.name.replace(/\.pdf$/i, "");
+
+async function exportBlob(blob, suggestedName) {
+  if (window.showSaveFilePicker) {
+    const picked = await window.showSaveFilePicker({ suggestedName, types: PDF_TYPES });
+    await writeToHandle(picked, blob);
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = suggestedName;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+els.pagesBtn.addEventListener("click", () => setPagesOpen(els.pagesPanel.hidden));
+thumbs.addEventListener("selection", syncPageTools);
+thumbs.addEventListener("go", (e) => view.goToPage(e.detail.page + 1));
+thumbs.addEventListener("delete", () => els.delPagesBtn.click());
+view.addEventListener("page", (e) => thumbs.setCurrent(e.detail.page - 1));
+
+els.rotLeftBtn.addEventListener("click", () => {
+  const sel = thumbs.selection();
+  applyPageChange("rotate pages", (bytes) => rotatePages(bytes, sel, -90)).then(() => thumbs.selectPages(sel));
+});
+els.rotRightBtn.addEventListener("click", () => {
+  const sel = thumbs.selection();
+  applyPageChange("rotate pages", (bytes) => rotatePages(bytes, sel, 90)).then(() => thumbs.selectPages(sel));
+});
+els.delPagesBtn.addEventListener("click", async () => {
+  const sel = thumbs.selection();
+  if (!sel.length) return;
+  if (sel.length >= state.doc.pageCount) {
+    toast("A document needs at least one page.", 4000);
+    return;
+  }
+  await applyPageChange("delete pages", (bytes) => deletePages(bytes, sel));
+});
+thumbs.addEventListener("reorder", async (e) => {
+  const { order, moved } = e.detail;
+  const done = await applyPageChange("reorder pages", (bytes) => reorderPages(bytes, order));
+  if (done) thumbs.selectPages(moved.map((old) => order.indexOf(old)).sort((a, b) => a - b));
+});
+
+els.insertPagesBtn.addEventListener("click", () => els.insertInput.click());
+els.insertInput.addEventListener("change", async () => {
+  const file = els.insertInput.files[0];
+  els.insertInput.value = "";
+  if (!file || !state.doc) return;
+  let other;
+  try {
+    other = await openDocument(new Uint8Array(await file.arrayBuffer()));
+  } catch (err) {
+    toast(err.code === PdfErrorCode.Password ? "Password-protected files cannot be inserted yet." : `Could not open ${file.name}: ${err.message}`, 6000);
+    return;
+  }
+  const answer = await askText({
+    title: `Insert from ${file.name}`,
+    label: `Pages to insert, for example 1-3, 5. Leave empty to insert all ${other.pageCount}.`,
+    okText: "Insert",
+    validate: (v) => (parsePageRange(v, other.pageCount) ? null : `Enter page numbers between 1 and ${other.pageCount}.`),
+  });
+  if (answer === null) {
+    closeDocument(other);
+    return;
+  }
+  const indices = parsePageRange(answer, other.pageCount);
+  const sel = thumbs.selection();
+  const at = (sel.length ? sel[sel.length - 1] : view.pageNumber - 1) + 1;
+  const done = await applyPageChange("insert pages", async () => {
+    await call(engine().importPages(state.doc, other, indices, at));
+    return new Uint8Array(await call(engine().saveAsCopy(state.doc)));
+  });
+  closeDocument(other);
+  if (done) thumbs.selectPages(indices.map((_, k) => at + k));
+});
+
+els.extractPagesBtn.addEventListener("click", async () => {
+  const sel = thumbs.selection();
+  if (!sel.length || !state.doc) return;
+  try {
+    toast("Preparing pages…", 0);
+    const buffer = await call(engine().extractPages(state.doc, sel));
+    const name = sel.length === 1 ? `${base()}-page-${sel[0] + 1}.pdf` : `${base()}-pages.pdf`;
+    await exportBlob(new Blob([buffer], { type: "application/pdf" }), name);
+    toast(`Saved ${sel.length} page${sel.length === 1 ? "" : "s"} as a new file`);
+  } catch (err) {
+    if (err?.name === "AbortError") els.toast.hidden = true;
+    else toast(`Could not save the pages: ${err.message}`, 6000);
+  }
+});
 
 // ----------------------------------------------------------------- comments
 
@@ -416,7 +585,10 @@ function setCommentsOpen(open) {
 // ------------------------------------------------------------ editor events
 
 editor.addEventListener("change", syncEditState);
-editor.addEventListener("edited", refreshComments);
+editor.addEventListener("edited", (e) => {
+  refreshComments();
+  if (e.detail?.page !== undefined) thumbs.refreshPage(e.detail.page);
+});
 editor.addEventListener("error", (e) => toast(e.detail.message, 6000));
 els.undoBtn.addEventListener("click", () => editor.undo());
 els.redoBtn.addEventListener("click", () => editor.redo());
