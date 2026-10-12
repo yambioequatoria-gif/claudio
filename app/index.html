@@ -6,7 +6,6 @@
 <title>Lite PDF</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="vendor/pdfjs/pdf_viewer.css">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -102,7 +101,17 @@
 </div>
 
 <div id="dropHint" hidden>Drop a PDF to open it</div>
-<script src="polyfills.js"></script>
-<script type="module" src="app.js"></script>
+<dialog id="dialog">
+  <form method="dialog" id="dialogForm">
+    <h2 id="dialogTitle"></h2>
+    <label id="dialogLabel"><span id="dialogText"></span><input id="dialogInput" autocomplete="off"></label>
+    <p id="dialogError" class="dialog-error" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="dialogCancel">Cancel</button>
+      <button type="submit" class="btn primary" id="dialogOk">OK</button>
+    </div>
+  </form>
+</dialog>
+<script type="module" src="main.js"></script>
 </body>
 </html>

@@ -1,100 +1,58 @@
-// Reads comments from PDF annotations (sticky notes, highlights, text boxes and their replies),
-// including files made by Acrobat, Foxit, Preview and other PDF apps.
-import { PDFDocument, PDFDict, PDFArray, PDFName, PDFRef, PDFHexString, PDFString } from "./vendor/pdf-lib/pdf-lib.esm.min.js";
+// Builds comment threads from the file's annotations: sticky notes, highlight and text-box comments, and replies.
+import { engine, call, PdfAnnotationSubtype } from "./engine.js";
 
-const name = (text) => PDFName.of(text);
+// Links, form fields and popups are not comments, even when they carry text.
+const NOT_COMMENTS = new Set([PdfAnnotationSubtype.LINK, PdfAnnotationSubtype.WIDGET, PdfAnnotationSubtype.POPUP]);
 
-const NOT_COMMENTS = new Set(["/Link", "/Widget", "/Popup"]);
+const toDate = (value) => {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
 
-function textOf(value) {
-  if (value instanceof PDFString || value instanceof PDFHexString) return value.decodeText();
-  return "";
-}
+const byDate = (a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0);
 
-// PDF dates look like D:20260131101500+01'00'. The time zone is ignored, which is fine for display.
-function dateOf(value) {
-  const match = /^D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?/.exec(textOf(value));
-  if (!match) return null;
-  const [, y, mo = "01", d = "01", h = "00", mi = "00", s = "00"] = match;
-  return new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s));
-}
-
-// Returns threads: each root comment with its replies, ordered by page and date.
-export async function readComments(bytes) {
-  const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
-  const ctx = pdf.context;
-
-  const records = [];
-  pdf.getPages().forEach((page, index) => {
-    const annots = page.node.Annots();
-    if (!annots) return;
-    for (let i = 0; i < annots.size(); i++) {
-      const item = annots.get(i);
-      const dict = ctx.lookup(item, PDFDict);
-      if (!dict) continue;
-      const subtype = dict.lookup(name("Subtype"))?.toString();
-      // Links, form fields and popups are not comments, even when they carry text.
-      if (NOT_COMMENTS.has(subtype)) continue;
-      records.push({
-        key: item instanceof PDFRef ? item.toString() : null,
-        dict,
-        page: index + 1,
-        subtype: subtype ? subtype.slice(1) : "Annotation",
+/** Returns threads: each root comment with its replies, ordered by page and date. */
+export async function readComments(doc) {
+  const perPage = await call(engine().getAllAnnotations(doc));
+  const comments = [];
+  for (const [pageIndex, annots] of Object.entries(perPage)) {
+    for (const a of annots) {
+      if (NOT_COMMENTS.has(a.type)) continue;
+      const text = (a.contents ?? "").trim();
+      if (!text) continue;
+      comments.push({
+        id: a.id,
+        pageIndex: Number(pageIndex),
+        page: Number(pageIndex) + 1,
+        type: a.type,
+        author: a.author ?? "",
+        date: toDate(a.modified) ?? toDate(a.created),
+        text,
+        parent: a.inReplyToId || null,
+        annotation: a,
       });
     }
-  });
-
-  const commentText = (dict) => {
-    const own = textOf(dict.lookup(name("Contents")));
-    if (own) return own;
-    // Some apps keep the text only on the popup that belongs to the note.
-    const popupRef = dict.get(name("Popup"));
-    const popup = popupRef ? ctx.lookup(popupRef, PDFDict) : undefined;
-    return popup ? textOf(popup.lookup(name("Contents"))) : "";
-  };
-
+  }
+  const byId = new Map(comments.map((c) => [c.id, c]));
   const roots = [];
-  const repliesByParent = new Map();
-  for (const rec of records) {
-    const text = commentText(rec.dict);
-    if (!text) continue;
-    const comment = {
-      key: rec.key,
-      page: rec.page,
-      subtype: rec.subtype,
-      author: textOf(rec.dict.lookup(name("T"))),
-      date: dateOf(rec.dict.lookup(name("M"))) || dateOf(rec.dict.lookup(name("CreationDate"))),
-      text,
-    };
-    const parent = rec.dict.get(name("IRT"));
-    if (parent instanceof PDFRef) {
-      const list = repliesByParent.get(parent.toString()) || [];
-      list.push(comment);
-      repliesByParent.set(parent.toString(), list);
+  const children = new Map();
+  for (const c of comments) {
+    if (c.parent && byId.has(c.parent)) {
+      if (!children.has(c.parent)) children.set(c.parent, []);
+      children.get(c.parent).push(c);
     } else {
-      roots.push(comment);
+      roots.push(c);
     }
   }
-
-  // Collect replies (and replies to replies) under each root. Orphaned replies become roots.
-  const attach = (comment, out) => {
-    const children = comment.key ? repliesByParent.get(comment.key) || [] : [];
-    for (const child of children) {
+  const collect = (c, out) => {
+    for (const child of children.get(c.id) ?? []) {
       out.push(child);
-      attach(child, out);
+      collect(child, out);
     }
     return out;
   };
-  const threads = roots.map((root) => ({ ...root, replies: attach(root, []).sort(byDate) }));
-  for (const [parentKey, list] of repliesByParent) {
-    const parentExists = records.some((r) => r.key === parentKey);
-    if (!parentExists) {
-      for (const orphan of list) threads.push({ ...orphan, replies: [] });
-    }
-  }
-  return threads.sort((a, b) => a.page - b.page || byDate(a, b));
-}
-
-function byDate(a, b) {
-  return (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0);
+  return roots
+    .map((root) => ({ ...root, replies: collect(root, []).sort(byDate) }))
+    .sort((a, b) => a.page - b.page || byDate(a, b));
 }

@@ -252,12 +252,10 @@ input:disabled { opacity: 0.4; cursor: default; }
   background: var(--stage);
   scrollbar-color: var(--line-strong) transparent;
 }
-.pdfViewer .page {
-  box-shadow: var(--shadow-page);
-}
 #message {
   position: absolute;
   inset: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -269,19 +267,38 @@ input:disabled { opacity: 0.4; cursor: default; }
 }
 #message:empty { display: none; }
 
-/* Text selection, search hits and link hover use the app accent instead of pdf.js's blue. */
-.textLayer ::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); }
-.textLayer .highlight { background-color: rgba(255, 196, 0, 0.45); }
-.textLayer .highlight.selected { background-color: color-mix(in srgb, var(--accent) 55%, transparent); }
-
-/* Link hover. The box is drawn from the exact link area the PDF declares, so what you see is what is clickable. */
-.annotationLayer .linkAnnotation > a { cursor: pointer; }
-.annotationLayer .linkAnnotation > a:hover {
-  opacity: 1 !important;
-  background: color-mix(in srgb, var(--accent) 16%, transparent) !important;
-  outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  border-radius: 2px;
+/* Pages. Everything on a page is positioned in PDF points scaled by --s, so zooming never needs a redraw of overlays. */
+.pages {
+  --s: 1.3333;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: max-content;
+  min-width: 100%;
+  padding: 20px;
+  box-sizing: border-box;
 }
+.page {
+  position: relative;
+  flex: none;
+  width: calc(var(--s) * var(--w) * 1px);
+  height: calc(var(--s) * var(--h) * 1px);
+  background: #fff;
+  box-shadow: var(--shadow-page);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.page .bitmap { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.page .layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.page .layer > * , .page .layer .hit { position: absolute; }
+.layer.find .hit-other { background: rgba(255, 196, 0, 0.4); border-radius: 2px; position: absolute; }
+.layer.find .hit-current { background: color-mix(in srgb, var(--accent) 45%, transparent); outline: 1px solid var(--accent); border-radius: 2px; position: absolute; }
+.layer.sel .selrect { position: absolute; background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.layer.links a.link { position: static; outline: none; }
+.layer.links .hit { border-radius: 2px; }
+.layer.links a.link.hot .hit { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent); }
+.layer.links a.link:focus-visible .hit { box-shadow: 0 0 0 2px var(--focus); }
 
 /* Comments panel */
 .panel {
@@ -368,6 +385,33 @@ input:disabled { opacity: 0.4; cursor: default; }
   overflow-wrap: anywhere;
   color: var(--text);
 }
+
+/* Dialog */
+dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+dialog::backdrop { background: rgba(18, 17, 16, 0.45); }
+dialog h2 { margin: 0 0 12px; font-size: 15px; }
+dialog label { display: grid; gap: 6px; color: var(--muted); }
+dialog input {
+  height: 34px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+dialog input:focus { outline: none; border-color: var(--accent); }
+.dialog-error { margin: 8px 0 0; color: var(--accent); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.dialog-actions .btn { border: 1px solid var(--line); }
+.dialog-actions .btn.primary { border: 0; }
 
 /* Floating drop hint */
 #dropHint {
