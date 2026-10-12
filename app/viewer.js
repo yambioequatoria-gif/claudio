@@ -1,6 +1,7 @@
 // The PDF view: lays out pages, renders the ones near the viewport with PDFium, and draws text selection,
 // links and search highlights from PDFium's own glyph geometry, so they cannot drift from what is drawn.
 import { engine, call, fromEngineRect, PdfAnnotationSubtype, MatchFlag } from "./engine.js";
+import { buildFormControls } from "./forms.js";
 import {
   buildPageData,
   caretAt,
@@ -83,7 +84,7 @@ export class PdfView extends EventTarget {
       el.style.setProperty("--w", String(pageObj.size.width));
       el.style.setProperty("--h", String(pageObj.size.height));
       const layers = {};
-      for (const name of ["find", "sel", "links", "marks"]) {
+      for (const name of ["find", "sel", "links", "forms", "marks"]) {
         layers[name] = document.createElement("div");
         layers[name].className = `layer ${name}`;
         el.append(layers[name]);
@@ -407,17 +408,20 @@ export class PdfView extends EventTarget {
   #loadData(p) {
     const generation = this.generation;
     p.dataPromise = (async () => {
-      const [geo, annots, text] = await Promise.all([
+      const [geo, annots, text, widgets] = await Promise.all([
         call(engine().getPageGeometry(this.doc, p.pageObj)),
         call(engine().getPageAnnotations(this.doc, p.pageObj)),
         call(engine().extractText(this.doc, [p.index])),
+        call(engine().getPageAnnoWidgets(this.doc, p.pageObj)).catch(() => []),
       ]);
       if (generation !== this.generation) return null;
       const pd = buildPageData(geo, text);
       pd.annots = annots;
+      pd.widgets = widgets;
       pd.links = this.#buildLinks(pd, annots);
       p.data = pd;
       this.#drawLinks(p);
+      this.#drawForms(p);
       this.#drawSelection();
       this.#emit("data", { page: p.index });
       return pd;
@@ -477,6 +481,21 @@ export class PdfView extends EventTarget {
       for (const r of link.rects) group.append(this.#rectEl(r, "hit"));
       layer.append(group);
     });
+  }
+
+  #drawForms(p) {
+    const commit = async (widget, value) => {
+      try {
+        await call(engine().setFormFieldValue(this.doc, p.pageObj, widget, value));
+        // The engine draws the new value into the page; only the bitmap needs refreshing.
+        this.invalidatePage(p.index, { geometry: false });
+        this.#emit("formchange", { page: p.index });
+      } catch (err) {
+        console.error("Could not set the form field", err);
+        this.#emit("formerror", { message: err.message });
+      }
+    };
+    p.layers.forms.replaceChildren(...buildFormControls(p, p.data.widgets ?? [], commit));
   }
 
   #rectEl(r, className) {
@@ -561,6 +580,8 @@ export class PdfView extends EventTarget {
 
   #onPointerDown(e) {
     if (e.button !== 0 || !this.doc) return;
+    // Form fields and the annotation action bar handle their own clicks.
+    if (e.target instanceof Element && e.target.closest(".forms .fld, .sel-bar")) return;
     if (this.pointerTool?.down(e, this)) return;
     const hit = this.pointToPage(e);
     if (!hit) {
@@ -659,6 +680,7 @@ export class PdfView extends EventTarget {
         this.#activate(hit.p.data.links[d.linkAtDown]);
         return;
       }
+      if (this.pointerTool?.click?.(e, this)) return;
       if (d.clicks === 1 && d.selecting) this.clearSelection();
     }
     if (this.selection) this.#finishSelection();
@@ -760,7 +782,9 @@ export class PdfView extends EventTarget {
   }
 
   #onCopy(e) {
-    if (!this.hasSelection() || !this.container.contains(document.activeElement) && document.activeElement !== document.body) return;
+    const active = document.activeElement;
+    const inField = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active?.isContentEditable;
+    if (!this.hasSelection() || inField) return;
     if (this.selectionText !== null) {
       e.clipboardData.setData("text/plain", this.selectionText);
       e.preventDefault();

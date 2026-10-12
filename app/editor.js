@@ -22,6 +22,8 @@ const PEN_COLORS = ["#E03131", "#1C1B19", "#2F9E44", "#F08C00", "#862E9C"];
 const NOT_EDITABLE = new Set([T.LINK, T.POPUP, T.WIDGET]);
 const MOVABLE = new Set([T.TEXT, T.FREETEXT, T.SQUARE, T.CIRCLE, T.INK, T.STAMP]);
 const HAS_TEXT = new Set([T.TEXT, T.FREETEXT, T.HIGHLIGHT, T.UNDERLINE, T.STRIKEOUT, T.SQUARE, T.CIRCLE]);
+// Marks drawn over text are selected by a plain click, so that text under them can still be dragged over.
+const MARKUP = new Set([T.HIGHLIGHT, T.UNDERLINE, T.STRIKEOUT, T.SQUIGGLY]);
 
 const stored = {
   get(key, fallback) {
@@ -155,6 +157,7 @@ export class Editor extends EventTarget {
     this.tool = name;
     for (const btn of this.railEl.querySelectorAll("[data-tool]")) btn.setAttribute("aria-pressed", String(btn.dataset.tool === name));
     this.view.pointerTool = this.handlers[name] ?? null;
+    this.view.pagesEl.dataset.tool = name;
     if (name !== "select") this.#select(null);
     this.#renderOptions();
     // Text already selected when a markup tool is chosen is marked up straight away.
@@ -673,7 +676,7 @@ export class Editor extends EventTarget {
   async #redact(pageIndex, r) {
     const ok = await askConfirm({
       title: "Remove this permanently?",
-      message: "The text under this box is deleted from the file and replaced with a black box. This cannot be undone, and saved copies cannot be recovered. Images and drawings under the box are not removed.",
+      message: "The content under this box is deleted from the file and replaced with a black box. This cannot be undone once you save, so check the result before you share the file.",
       okText: "Redact",
     });
     if (!ok) return;
@@ -727,7 +730,7 @@ export class Editor extends EventTarget {
   #drawSelected(pageIndex) {
     const p = this.view.pages[pageIndex];
     if (!p) return;
-    for (const n of p.layers.marks.querySelectorAll(".sel-box")) n.remove();
+    for (const n of p.layers.marks.querySelectorAll(".sel-box, .sel-bar")) n.remove();
     if (!this.selected || this.selected.page !== pageIndex || !p.data) return;
     const a = p.data.annots?.find((x) => x.id === this.selected.id);
     if (!a) return;
@@ -740,6 +743,31 @@ export class Editor extends EventTarget {
       n.style.height = `calc(var(--s) * ${r.h.toFixed(2)}px)`;
       p.layers.marks.append(n);
     }
+    this.#drawActionBar(p, a, rects);
+  }
+
+  /** A small bar above the selected annotation with the things you usually want to do to it. */
+  #drawActionBar(p, a, rects) {
+    const top = Math.min(...rects.map((r) => r.y));
+    const left = Math.min(...rects.map((r) => r.x));
+    const bar = el("div", "sel-bar");
+    bar.style.left = `calc(var(--s) * ${left.toFixed(2)}px)`;
+    bar.style.top = `calc(var(--s) * ${top.toFixed(2)}px)`;
+    const add = (label, onClick, danger = false) => {
+      const b = el("button", danger ? "danger" : "", label);
+      b.type = "button";
+      b.addEventListener("pointerdown", (e) => e.stopPropagation());
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onClick(e);
+      });
+      bar.append(b);
+    };
+    if (HAS_TEXT.has(a.type)) {
+      add(a.contents ? "Edit comment" : "Add comment", (e) => this.#editText(p.index, a, e));
+    }
+    add("Delete", () => this.deleteSelected().catch((err) => this.#fail("delete that", err)), true);
+    p.layers.marks.append(bar);
   }
 
   #selectTool() {
@@ -756,6 +784,12 @@ export class Editor extends EventTarget {
           self.#select(null);
           return false;
         }
+        this.pending = null;
+        if (MARKUP.has(annot.type)) {
+          // Let a drag over highlighted text select the text; a plain click selects the mark (see click below).
+          this.pending = { page: hit.p.index, id: annot.id };
+          return false;
+        }
         const now = performance.now();
         const again = this.last && this.last.id === annot.id && now - this.last.t < 450;
         this.last = { id: annot.id, t: now };
@@ -769,6 +803,12 @@ export class Editor extends EventTarget {
         this.active = true;
         this.drag = { annot, p: hit.p, start: self.#pagePoint(e, hit.p), moved: false, dx: 0, dy: 0 };
         e.preventDefault();
+        return true;
+      },
+      click() {
+        if (!this.pending) return false;
+        self.#select(this.pending);
+        this.pending = null;
         return true;
       },
       move(e) {

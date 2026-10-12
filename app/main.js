@@ -167,7 +167,10 @@ async function openBytes(bytes, name, handle = null) {
     els.container.focus({ preventScroll: true });
     loadComments(token);
   } catch (err) {
-    if (token === openToken) showMessage(`Could not open ${name}: ${err.message}`);
+    if (token === openToken) {
+      const unreadable = err.code === PdfErrorCode.WrongFormat || /LoadMemDocument|format/i.test(err.message);
+      showMessage(unreadable ? `${name} is not a valid PDF, or it is damaged.` : `Could not open ${name}: ${err.message}`);
+    }
   }
 }
 
@@ -584,6 +587,11 @@ function setCommentsOpen(open) {
 
 // ------------------------------------------------------------ editor events
 
+view.addEventListener("formchange", (e) => {
+  editor.markDirty();
+  thumbs.refreshPage(e.detail.page);
+});
+view.addEventListener("formerror", (e) => toast(`Could not fill in that field: ${e.detail.message}`, 5000));
 editor.addEventListener("change", syncEditState);
 editor.addEventListener("edited", (e) => {
   refreshComments();

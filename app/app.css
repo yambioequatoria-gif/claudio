@@ -319,6 +319,33 @@ input:disabled { opacity: 0.4; cursor: default; }
 .page .layer > * , .page .layer .hit { position: absolute; }
 .layer.find .hit-other { background: rgba(255, 196, 0, 0.4); border-radius: 2px; position: absolute; }
 .layer.find .hit-current { background: color-mix(in srgb, var(--accent) 45%, transparent); outline: 1px solid var(--accent); border-radius: 2px; position: absolute; }
+/* Form field controls: invisible until used, so the engine's own drawing of the field stays visible. */
+.layer.forms .fld {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 2px;
+  pointer-events: auto;
+  color: transparent;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  font-family: Helvetica, Arial, sans-serif;
+  outline: none;
+  cursor: text;
+}
+.layer.forms input.fld, .layer.forms textarea.fld { resize: none; line-height: 1.2; }
+.layer.forms div.fld, .layer.forms select.fld { cursor: pointer; padding: 0; }
+.layer.forms .fld:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.layer.forms input.fld:focus, .layer.forms textarea.fld:focus {
+  color: #1c1b19;
+  background: #fff;
+  border-color: var(--accent);
+}
+.layer.forms select.fld option { color: #1c1b19; background: #fff; }
+.layer.forms select.fld:focus { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); }
+.layer.forms div.fld:focus-visible { border-color: var(--accent); }
+.pages:not([data-tool="select"]) .layer.forms .fld { pointer-events: none; }
 .layer.sel .selrect { position: absolute; background: color-mix(in srgb, var(--accent) 30%, transparent); }
 .layer.links a.link { position: static; outline: none; }
 .layer.links .hit { border-radius: 2px; }
@@ -551,6 +578,32 @@ input:disabled { opacity: 0.4; cursor: default; }
   border-radius: 2px;
   pointer-events: none;
 }
+.layer.marks .sel-bar {
+  position: absolute;
+  transform: translateY(calc(-100% - 8px));
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: 0 6px 20px rgba(28, 27, 25, 0.22);
+  pointer-events: auto;
+  white-space: nowrap;
+}
+.layer.marks .sel-bar button {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.layer.marks .sel-bar button:hover { background: var(--hover); }
+.layer.marks .sel-bar button.danger { color: var(--accent); }
 .layer.marks .preview-rect {
   position: absolute;
   border: 1.5px dashed var(--accent);

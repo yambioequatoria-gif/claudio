@@ -30,13 +30,15 @@ Pages: the Pages panel shows thumbnails. Select pages (click, Shift-click, Ctrl-
 
 Saving: Ctrl+S saves back to the file it was opened from (Edge asks for permission the first time). Ctrl+Shift+S saves a copy. Ctrl+P prints, with an optional page range.
 
-Not done yet: filling in form fields, signing, and page changes on password-protected files. Opening a password-protected file works.
+Forms: text fields, checkboxes, radio buttons and dropdowns can be filled in; the value is written into the file when you leave the field.
+
+Not done yet: digital signatures, and page changes on password-protected files. Opening a password-protected file works.
 
 ## How it is built
 
 No build step and no network access at run time. `index.html`, `app.css` and the `.js` files next to it are the app:
 
-`engine.js` wraps the PDF engine. `viewer.js` lays out and renders pages and handles selection, links and search. `pagedata.js` holds the text geometry: lines of glyph boxes, hit-testing, selection rectangles, auto-detected links, and the correction that snaps a link's area to the text it covers. `editor.js` has the editing tools and undo. `comments.js` builds comment threads. `thumbs.js` and `pageops.js` are the Pages panel and page changes. `print.js` renders pages for printing. `main.js` wires it together.
+`engine.js` wraps the PDF engine. `viewer.js` lays out and renders pages and handles selection, links and search. `pagedata.js` holds the text geometry: lines of glyph boxes, hit-testing, selection rectangles, auto-detected links, and the correction that snaps a link's area to the text it covers. `editor.js` has the editing tools and undo. `comments.js` builds comment threads. `thumbs.js` and `pageops.js` are the Pages panel and page changes. `forms.js` puts controls over form fields. `print.js` renders pages for printing. `main.js` wires it together.
 
 `sw.js` lets the app load offline once opened. `manifest.webmanifest` declares PDF file handling. `serve.ps1` is the local server, `setup.ps1` registers it at sign-in, and the `.bat` files are double-click wrappers.
 
@@ -48,6 +50,6 @@ An earlier version used pdf.js. It places selection and link boxes from a substi
 
 ## Status
 
-Tested in headless Chromium against five real PDFs and synthetic ones (rotated pages, embedded fonts, 400 pages): rendering, selection, links, search, comments, every editing tool, save and reopen, print rendering, and page changes. Alignment was measured on every page: rendered text sits within about one pixel of the engine's text boxes.
+Tested in headless Chromium against five real PDFs and synthetic ones (rotated pages, embedded fonts, 400 pages): rendering, selection, links, search, comments, every editing tool, form filling, passwords, save and reopen, print rendering, and page changes. Alignment was measured on every page: rendered text sits within about one pixel of the engine's text boxes.
 
 Not yet tested on Windows or in Edge: `setup.bat`, installing the app, opening a PDF from Explorer, saving in place through Edge's file permission, and the real print dialog.
