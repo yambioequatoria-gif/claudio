@@ -171,13 +171,27 @@ function renderCommentsMessage(text) {
   els.commentCount.textContent = "0";
 }
 
+const AVATAR_COLORS = ["#3b5bdb", "#0ca678", "#d9480f", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"];
+
+// The same author always gets the same colour, so replies are easy to follow.
+function avatarColor(name) {
+  let hash = 0;
+  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
+
 function commentNode(comment, isReply) {
+  const author = comment.author || "Unknown author";
   const box = el("div", isReply ? "comment reply" : "comment");
+  const avatar = el("div", "avatar", author.trim().charAt(0).toUpperCase() || "?");
+  avatar.style.background = avatarColor(author);
+  const body = el("div", "comment-body");
   const meta = el("div", "meta");
-  meta.append(el("strong", null, comment.author || "Unknown author"));
+  meta.append(el("strong", null, author));
   const when = formatDate(comment.date);
   if (when) meta.append(` · ${when}`);
-  box.append(meta, el("p", "text", comment.text));
+  body.append(meta, el("p", "text", comment.text));
+  box.append(avatar, body);
   return box;
 }
 
