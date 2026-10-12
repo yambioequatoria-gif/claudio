@@ -171,7 +171,7 @@ function renderCommentsMessage(text) {
   els.commentCount.textContent = "0";
 }
 
-const AVATAR_COLORS = ["#3b5bdb", "#0ca678", "#d9480f", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"];
+const AVATAR_COLORS = ["#b8420f", "#2f7d4f", "#9a6a07", "#9d2f5b", "#6b4f2a", "#57534e", "#a1301f"];
 
 // The same author always gets the same colour, so replies are easy to follow.
 function avatarColor(name) {

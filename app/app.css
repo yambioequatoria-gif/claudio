@@ -1,62 +1,67 @@
+/* Palette: warm graphite and stone, one vermilion accent. */
 :root {
-  --stage: #e7e9ee;
-  --surface: #ffffff;
-  --surface-2: #f5f6f8;
-  --line: #e2e5eb;
-  --line-strong: #d3d7de;
-  --text: #17191f;
-  --muted: #6b7280;
-  --hover: #eef0f4;
-  --accent: #3b5bdb;
-  --accent-hover: #3350c4;
+  --stage: #e8e5df;
+  --surface: #f7f5f1;
+  --surface-2: #efece6;
+  --line: #dcd8d0;
+  --line-strong: #c9c4ba;
+  --text: #1c1b19;
+  --muted: #6e695f;
+  --hover: #e6e2da;
+  --ink: #1c1b19;
+  --ink-text: #f7f5f1;
+  --accent: #d9431a;
   --accent-text: #ffffff;
-  --accent-soft: #e8edfc;
-  --focus: #3b5bdb;
-  --shadow-bar: 0 1px 0 var(--line), 0 1px 6px rgba(15, 23, 42, 0.04);
-  --shadow-page: 0 1px 2px rgba(15, 23, 42, 0.12), 0 6px 20px rgba(15, 23, 42, 0.10);
-  --radius: 8px;
+  --accent-soft: #f5e1d8;
+  --focus: #d9431a;
+  --shadow-page: 0 1px 2px rgba(28, 27, 25, 0.14), 0 8px 24px rgba(28, 27, 25, 0.10);
+  --radius: 10px;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --stage: #14161a;
-    --surface: #1d2025;
-    --surface-2: #23272e;
-    --line: #2d323b;
-    --line-strong: #3a404b;
-    --text: #e7e9ee;
-    --muted: #9097a3;
-    --hover: #2a2f38;
-    --accent: #7c97ff;
-    --accent-hover: #8ea6ff;
-    --accent-text: #0c1020;
-    --accent-soft: #252e4d;
-    --focus: #7c97ff;
-    --shadow-bar: 0 1px 0 var(--line);
-    --shadow-page: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.45);
+    --stage: #121110;
+    --surface: #1a1917;
+    --surface-2: #232220;
+    --line: #2f2d2a;
+    --line-strong: #3d3a36;
+    --text: #ece9e3;
+    --muted: #9c968b;
+    --hover: #2b2926;
+    --ink: #ece9e3;
+    --ink-text: #1c1b19;
+    --accent: #ff6b3d;
+    --accent-text: #1c1b19;
+    --accent-soft: #3a2218;
+    --focus: #ff6b3d;
+    --shadow-page: 0 1px 2px rgba(0, 0, 0, 0.6), 0 10px 28px rgba(0, 0, 0, 0.5);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --stage: #14161a;
-  --surface: #1d2025;
-  --surface-2: #23272e;
-  --line: #2d323b;
-  --line-strong: #3a404b;
-  --text: #e7e9ee;
-  --muted: #9097a3;
-  --hover: #2a2f38;
-  --accent: #7c97ff;
-  --accent-hover: #8ea6ff;
-  --accent-text: #0c1020;
-  --accent-soft: #252e4d;
-  --focus: #7c97ff;
-  --shadow-bar: 0 1px 0 var(--line);
-  --shadow-page: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.45);
+  --stage: #121110;
+  --surface: #1a1917;
+  --surface-2: #232220;
+  --line: #2f2d2a;
+  --line-strong: #3d3a36;
+  --text: #ece9e3;
+  --muted: #9c968b;
+  --hover: #2b2926;
+  --ink: #ece9e3;
+  --ink-text: #1c1b19;
+  --accent: #ff6b3d;
+  --accent-text: #1c1b19;
+  --accent-soft: #3a2218;
+  --focus: #ff6b3d;
+  --shadow-page: 0 1px 2px rgba(0, 0, 0, 0.6), 0 10px 28px rgba(0, 0, 0, 0.5);
   color-scheme: dark;
 }
 
-* { box-sizing: border-box; }
+/* border-box only for the app's own UI. It must NOT apply inside the PDF viewer: pdf.js sizes the
+   canvas and the text and link layers assuming content-box, and border-box shrinks the canvas
+   relative to the layers, which blurs the page and misplaces text selection and link areas. */
+.bar, .bar *, .panel, .panel *, #dropHint { box-sizing: border-box; }
+
 html, body { height: 100%; margin: 0; }
 body {
   display: flex;
@@ -75,13 +80,11 @@ button, input { font: inherit; color: inherit; }
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   min-height: 56px;
   padding: 0 16px;
-  background: color-mix(in srgb, var(--surface) 82%, transparent);
-  backdrop-filter: saturate(1.4) blur(14px);
-  -webkit-backdrop-filter: saturate(1.4) blur(14px);
-  box-shadow: var(--shadow-bar);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
 }
 .brand {
   display: flex;
@@ -90,29 +93,19 @@ button, input { font: inherit; color: inherit; }
   min-width: 0;
   max-width: 220px;
 }
-.mark {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: linear-gradient(140deg, #7b93ff, #3b5bdb 70%);
-  box-shadow: 0 2px 8px rgba(59, 91, 219, 0.35);
-  color: #fff;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-}
+.logo { flex: none; width: 30px; height: 30px; display: block; }
+.logo .tile { fill: var(--ink); }
+.logo .sheet { fill: var(--ink-text); }
+.logo .fold { fill: var(--accent); }
+.logo .line { fill: var(--ink); }
+.logo .mark-bar { fill: var(--accent); opacity: 0.45; }
 .doc-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
-  font-size: 13px;
   color: var(--text);
 }
-.doc-name:not(:empty) { max-width: 100%; }
 .tools {
   display: flex;
   align-items: center;
@@ -165,19 +158,17 @@ button, input { font: inherit; color: inherit; }
 .btn.primary {
   height: 32px;
   padding: 0 14px;
-  background: var(--accent);
-  color: var(--accent-text);
+  background: var(--ink);
+  color: var(--ink-text);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
 }
-.btn.primary:hover:not(:disabled) { background: var(--accent-hover); color: var(--accent-text); }
+.btn.primary:hover:not(:disabled) { background: var(--ink); color: var(--ink-text); opacity: 0.86; }
 .btn.toggle { color: var(--muted); }
 .btn.toggle[aria-pressed="true"] {
   background: var(--accent-soft);
   color: var(--accent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
-.btn.text-only { color: var(--accent); font-weight: 600; }
 .badge {
   min-width: 18px;
   padding: 0 5px;
@@ -213,7 +204,7 @@ input:disabled { opacity: 0.4; cursor: default; }
   border-radius: 6px;
   -moz-appearance: textfield;
 }
-.page-box input:focus { outline: none; border-color: var(--focus); }
+.page-box input:focus { outline: none; border-color: var(--accent); }
 .page-box input::-webkit-outer-spin-button,
 .page-box input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .zoom-label {
@@ -224,12 +215,8 @@ input:disabled { opacity: 0.4; cursor: default; }
   font-size: 12px;
 }
 
-.find {
-  gap: 2px;
-  padding-left: 10px;
-  background: var(--surface-2);
-}
-.find:focus-within { border-color: var(--focus); }
+.find { gap: 2px; padding-left: 10px; }
+.find:focus-within { border-color: var(--accent); }
 .find input {
   width: 160px;
   height: 28px;
@@ -238,7 +225,7 @@ input:disabled { opacity: 0.4; cursor: default; }
   outline: none;
 }
 .find input::placeholder { color: var(--muted); }
-.find input::-webkit-search-cancel-button { filter: invert(0.5); }
+.find input::-webkit-search-cancel-button { filter: grayscale(1); opacity: 0.6; }
 .find-count {
   min-width: 64px;
   font-size: 12px;
@@ -262,14 +249,11 @@ input:disabled { opacity: 0.4; cursor: default; }
   position: absolute;
   inset: 0;
   overflow: auto;
-  background:
-    radial-gradient(1200px 600px at 50% -10%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
-    var(--stage);
+  background: var(--stage);
   scrollbar-color: var(--line-strong) transparent;
 }
 .pdfViewer .page {
   box-shadow: var(--shadow-page);
-  border-radius: 2px;
 }
 #message {
   position: absolute;
@@ -285,18 +269,19 @@ input:disabled { opacity: 0.4; cursor: default; }
 }
 #message:empty { display: none; }
 
-/* Link annotations: keep the pointer, skip pdf.js's hover box, which is drawn from the file's link position */
-/* pdf.js's own hover rules are more specific, so these need !important to win. */
+/* Text selection, search hits and link hover use the app accent instead of pdf.js's blue. */
+.textLayer ::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+.textLayer .highlight { background-color: rgba(255, 196, 0, 0.45); }
+.textLayer .highlight.selected { background-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+
+/* Link hover. The box is drawn from the exact link area the PDF declares, so what you see is what is clickable. */
+.annotationLayer .linkAnnotation > a { cursor: pointer; }
 .annotationLayer .linkAnnotation > a:hover {
   opacity: 1 !important;
-  background: transparent !important;
-  backdrop-filter: none !important;
+  background: color-mix(in srgb, var(--accent) 16%, transparent) !important;
+  outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 2px;
 }
-.annotationLayer .linkAnnotation.hasBorder:hover {
-  backdrop-filter: none !important;
-  background-color: transparent !important;
-}
-.annotationLayer .linkAnnotation > a { cursor: pointer; }
 
 /* Comments panel */
 .panel {
@@ -308,16 +293,16 @@ input:disabled { opacity: 0.4; cursor: default; }
   border-left: 1px solid var(--line);
 }
 .panel[hidden] { display: none; }
-.panel:not([hidden]) { animation: panel-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.panel:not([hidden]) { animation: panel-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 @keyframes panel-in {
-  from { opacity: 0; transform: translateX(12px); }
+  from { opacity: 0; transform: translateX(10px); }
   to { opacity: 1; transform: none; }
 }
 .panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 52px;
+  height: 56px;
   padding: 0 10px 0 16px;
   border-bottom: 1px solid var(--line);
 }
@@ -343,12 +328,12 @@ input:disabled { opacity: 0.4; cursor: default; }
 }
 .thread {
   padding: 12px 14px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--surface-2);
   border: 1px solid var(--line);
-  transition: border-color 160ms ease, transform 160ms ease;
+  transition: border-color 160ms ease;
 }
-.thread:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+.thread:hover { border-color: var(--line-strong); }
 .thread-page {
   display: inline-flex;
   padding: 2px 8px;
@@ -392,12 +377,11 @@ input:disabled { opacity: 0.4; cursor: default; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(20, 22, 26, 0.55);
-  backdrop-filter: blur(2px);
-  color: #fff;
+  background: rgba(18, 17, 16, 0.6);
+  color: #f7f5f1;
   font-size: 18px;
   font-weight: 500;
-  border: 2px dashed rgba(255, 255, 255, 0.8);
+  border: 2px dashed rgba(247, 245, 241, 0.8);
   border-radius: 14px;
   pointer-events: none;
 }
