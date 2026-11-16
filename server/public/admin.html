@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Quiz question admin</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f5f6fa; --card:#fff; --text:#1e272e; --muted:#636e72; --line:#dfe4ea; --accent:#6c5ce7; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14161c; --card:#1f232c; --text:#f1f2f6; --muted:#a4b0be; --line:#2f3542; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:960px; margin:0 auto; padding:16px; }
+  h1 { font-size:22px; } h2 { font-size:16px; margin:0 0 10px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  input, select, button, textarea { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); width:100%; }
+  button { width:auto; cursor:pointer; background:var(--accent); color:#fff; border:0; font-weight:600; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--line); }
+  button.danger { background:#d63031; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; } .row > * { flex:1 1 160px; } .row > button { flex:0 0 auto; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; } @media (max-width:600px){ .grid { grid-template-columns:1fr; } }
+  .q { border-top:1px solid var(--line); padding:10px 0; display:flex; gap:10px; justify-content:space-between; align-items:start; }
+  .q small { color:var(--muted); } .q .ok { color:#00997a; font-weight:600; } .q.off { opacity:.5; }
+  #msg { min-height:20px; color:#d63031; margin:8px 0; } #msg.good { color:#00997a; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Quiz question admin</h1>
+  <section id="login">
+    <h2>Sign in</h2>
+    <div class="row">
+      <div><label for="token">Admin token</label><input id="token" type="password" autocomplete="off"></div>
+      <button id="signin">Sign in</button>
+    </div>
+  </section>
+  <div id="msg" role="status"></div>
+  <div id="app" hidden>
+    <section>
+      <h2 id="formTitle">Add a question</h2>
+      <div class="row">
+        <div><label for="fCat">Category</label><select id="fCat"></select></div>
+        <div><label for="fDiff">Difficulty</label><select id="fDiff"><option value="1">Easy</option><option value="2" selected>Medium</option><option value="3">Hard</option></select></div>
+        <div><label for="fActive">Status</label><select id="fActive"><option value="true">Active</option><option value="false">Retired</option></select></div>
+      </div>
+      <p><label for="fText">Question</label><textarea id="fText" rows="2"></textarea></p>
+      <div class="grid">
+        <div><label for="a0">Correct answer</label><input id="a0"></div>
+        <div><label for="a1">Wrong answer</label><input id="a1"></div>
+        <div><label for="a2">Wrong answer</label><input id="a2"></div>
+        <div><label for="a3">Wrong answer</label><input id="a3"></div>
+      </div>
+      <p class="row"><button id="save">Save question</button><button id="cancel" class="ghost" hidden>Cancel edit</button></p>
+    </section>
+    <section>
+      <h2>New category</h2>
+      <div class="row">
+        <div><label for="cId">Id (lowercase-with-dashes)</label><input id="cId"></div>
+        <div><label for="cName">Name</label><input id="cName"></div>
+        <div><label for="cEmoji">Emoji</label><input id="cEmoji" maxlength="8"></div>
+        <div><label for="cColor">Colour</label><input id="cColor" type="color" value="#6c5ce7" style="height:38px;padding:2px"></div>
+        <button id="saveCat">Save category</button>
+      </div>
+    </section>
+    <section>
+      <h2>Questions <small id="count"></small></h2>
+      <div class="row">
+        <div><label for="filterCat">Category</label><select id="filterCat"></select></div>
+        <div><label for="search">Search</label><input id="search" type="search"></div>
+      </div>
+      <div id="list"></div>
+    </section>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let token = sessionStorage.getItem('adminToken') || '';
+let editing = null;
+let questions = [];
+
+function say(text, good) { $('msg').textContent = text || ''; $('msg').className = good ? 'good' : ''; }
+
+async function api(method, url, body) {
+  const res = await fetch(url, {
+    method,
+    headers: { authorization: 'Bearer ' + token, ...(body ? { 'content-type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || 'Request failed (' + res.status + ')');
+  return data;
+}
+
+async function loadCategories() {
+  const { categories } = await api('GET', '/admin/api/categories');
+  const options = categories.map((c) => new Option(c.emoji + ' ' + c.name + ' (' + c.questions + ')', c.id));
+  $('fCat').replaceChildren(...options.map((o) => o.cloneNode(true)));
+  const current = $('filterCat').value;
+  $('filterCat').replaceChildren(new Option('All categories', ''), ...options);
+  $('filterCat').value = current;
+}
+
+async function loadQuestions() {
+  const params = new URLSearchParams();
+  if ($('filterCat').value) params.set('category', $('filterCat').value);
+  if ($('search').value.trim()) params.set('search', $('search').value.trim());
+  questions = (await api('GET', '/admin/api/questions?' + params)).questions;
+  $('count').textContent = '(' + questions.length + (questions.length === 500 ? '+, narrow the filter' : '') + ')';
+  // Built with DOM nodes and textContent so question text can never run as markup.
+  $('list').replaceChildren(...questions.map((q) => {
+    const row = document.createElement('div');
+    row.className = 'q' + (q.active ? '' : ' off');
+    const text = document.createElement('div');
+    const title = document.createElement('div');
+    title.textContent = q.text;
+    const answers = document.createElement('small');
+    const ok = document.createElement('span');
+    ok.className = 'ok';
+    ok.textContent = q.answers[0];
+    answers.append(q.categoryId + ' · ', ok, ' · ' + q.answers.slice(1).join(' · ') + (q.active ? '' : ' · retired'));
+    text.append(title, answers);
+    const actions = document.createElement('div');
+    actions.className = 'row';
+    const edit = Object.assign(document.createElement('button'), { className: 'ghost', textContent: 'Edit' });
+    edit.onclick = () => startEdit(q);
+    const del = Object.assign(document.createElement('button'), { className: 'danger', textContent: 'Delete' });
+    del.onclick = () => remove(q);
+    actions.append(edit, del);
+    row.append(text, actions);
+    return row;
+  }));
+}
+
+function startEdit(q) {
+  editing = q.id;
+  $('formTitle').textContent = 'Edit question';
+  $('cancel').hidden = false;
+  $('fCat').value = q.categoryId; $('fDiff').value = q.difficulty; $('fActive').value = String(q.active); $('fText').value = q.text;
+  q.answers.forEach((a, i) => { $('a' + i).value = a; });
+  scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function resetForm() {
+  editing = null;
+  $('formTitle').textContent = 'Add a question';
+  $('cancel').hidden = true;
+  $('fText').value = ''; $('fActive').value = 'true';
+  [0, 1, 2, 3].forEach((i) => { $('a' + i).value = ''; });
+}
+
+async function remove(q) {
+  if (!confirm('Delete this question?\n\n' + q.text)) return;
+  try {
+    const res = await api('DELETE', '/admin/api/questions/' + q.id);
+    say(res.retired ? 'Already used in games, so it was retired instead of deleted.' : 'Deleted.', true);
+    await refresh();
+  } catch (e) { say(e.message); }
+}
+
+async function refresh() { await loadCategories(); await loadQuestions(); }
+
+$('save').onclick = async () => {
+  const body = {
+    categoryId: $('fCat').value, text: $('fText').value, difficulty: Number($('fDiff').value), active: $('fActive').value === 'true',
+    answers: [0, 1, 2, 3].map((i) => $('a' + i).value),
+  };
+  try {
+    if (editing) await api('PUT', '/admin/api/questions/' + editing, body);
+    else await api('POST', '/admin/api/questions', body);
+    say('Saved.', true); resetForm(); await refresh();
+  } catch (e) { say(e.message); }
+};
+$('cancel').onclick = resetForm;
+$('saveCat').onclick = async () => {
+  try {
+    await api('POST', '/admin/api/categories', { id: $('cId').value, name: $('cName').value, emoji: $('cEmoji').value, color: $('cColor').value });
+    say('Category saved.', true); $('cId').value = $('cName').value = $('cEmoji').value = ''; await loadCategories();
+  } catch (e) { say(e.message); }
+};
+$('filterCat').onchange = () => loadQuestions().catch((e) => say(e.message));
+let timer; $('search').oninput = () => { clearTimeout(timer); timer = setTimeout(() => loadQuestions().catch((e) => say(e.message)), 250); };
+
+async function enter() {
+  try {
+    await refresh();
+    sessionStorage.setItem('adminToken', token);
+    $('login').hidden = true; $('app').hidden = false; say('');
+  } catch (e) { sessionStorage.removeItem('adminToken'); say(e.message); }
+}
+$('signin').onclick = () => { token = $('token').value.trim(); enter(); };
+$('token').onkeydown = (e) => { if (e.key === 'Enter') $('signin').click(); };
+if (token) enter();
+</script>
+</body>
+</html>
